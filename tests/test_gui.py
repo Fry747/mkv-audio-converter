@@ -13,8 +13,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 try:
-    from PySide6.QtCore import QSettings, Qt
-    from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+    from PySide6.QtCore import QItemSelectionModel, QPoint, QSettings, Qt
+    from PySide6.QtWidgets import QApplication, QDialog, QMenu, QMessageBox
+    from PySide6.QtTest import QTest
     from mkv_audio_converter.gui import RepairSelectionDialog, RepairWorker, Window, Worker
     HAVE_QT = True
 except ImportError:
@@ -61,6 +62,16 @@ class GuiTests(unittest.TestCase):
             self.app.processEvents()
             self.fail('GUI worker did not finish')
         self.app.processEvents()
+
+    def use_file_menu(self, window, row, inspect_menu):
+        window.table.customContextMenuRequested.emit(
+            window.table.visualItemRect(window.table.item(row, 0)).center())
+        self.app.processEvents()
+        try:
+            self.assertTrue(window.file_menu.isVisible())
+            inspect_menu(window.file_menu)
+        finally:
+            window.file_menu.close()
 
     def test_window_controls_and_remove_row(self):
         window = Window()
@@ -461,6 +472,141 @@ class GuiTests(unittest.TestCase):
             self.assertIn('Gerettet', window.table.item(window.rows[source], 2).text())
             self.assertFalse(inspect(output, runner).dts_tracks)
         self.assertEqual([hashlib.sha256(path.read_bytes()).hexdigest() for path in (first, second)], hashes)
+        window.close()
+
+
+    def test_context_menu_on_unselected_row_removes_only_clicked_entry(self):
+        window = Window()
+        for path in ('/one/Film.mkv', '/two/Film.mkv'):
+            window.found(media_for(path))
+        window.show()
+        self.app.processEvents()
+        window.table.selectRow(0)
+        def remove(menu, *_):
+            action = menu.actions()[0]
+            self.assertTrue(action.isEnabled())
+            self.assertEqual(action.text(), 'Aus Liste entfernen')
+            action.trigger()
+        self.use_file_menu(window, 1, remove)
+        self.assertEqual(window.rows, {'/one/Film.mkv': 0})
+        self.assertEqual(list(window.media), ['/one/Film.mkv'])
+        window.close()
+
+    def test_context_multi_remove_cleans_state_without_deleting_files_or_reports(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            paths = [root / name / 'Film.mkv' for name in ('one', 'keep', 'two')]
+            for path in paths:
+                path.parent.mkdir()
+                path.write_bytes(b'original source')
+            output = root / 'finished_ac3.mkv'
+            output.write_bytes(b'finished output')
+            window = Window()
+            for path in paths:
+                window.found(media_for(path))
+            window.completed(Result(paths[0], output))
+            window.mark_damaged(str(paths[2]), 'Resyncing')
+            window.report = {'files': [{'source': str(paths[0]), 'output': str(output)}]}
+            report = window.report
+            window.show()
+            self.app.processEvents()
+            selection = window.table.selectionModel()
+            flags = QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
+            for row in (0, 2):
+                selection.select(window.table.model().index(row, 0), flags)
+            def remove(menu, *_):
+                self.assertEqual(menu.actions()[0].text(), '2 Einträge aus Liste entfernen')
+                menu.actions()[0].trigger()
+            self.use_file_menu(window, 2, remove)
+            self.assertEqual(window.rows, {str(paths[1]): 0})
+            self.assertEqual(list(window.media), [str(paths[1])])
+            self.assertFalse(window.damage_errors)
+            self.assertFalse(window.outputs)
+            self.assertIs(window.report, report)
+            self.assertEqual(report['files'][0]['output'], str(output))
+            for path in paths:
+                self.assertEqual(path.read_bytes(), b'original source')
+            self.assertEqual(output.read_bytes(), b'finished output')
+            # Re-adding a finished source must not inherit its old output entry.
+            window.found(media_for(paths[0]))
+            self.assertEqual(window.rows[str(paths[0])], 1)
+            self.assertEqual(window.table.item(1, 2).text(), 'Bereit')
+            self.assertTrue(window.start_button.isEnabled())
+            window.close()
+
+    def test_remove_is_locked_during_scan_conversion_analysis_and_recovery(self):
+        factories = [lambda w: Worker(paths=[Path('/a.mkv')], parent=w),
+                     lambda w: Worker(media=[media_for('/a.mkv')], options=Options(), parent=w),
+                     lambda w: RepairWorker([Path('/a.mkv')], Options(), parent=w),
+                     lambda w: RepairWorker([Path('/a.mkv')], Options(),
+                                             plans=[plan_for(media_for('/a.mkv'))], parent=w)]
+        for factory in factories:
+            with self.subTest(factory=factory):
+                window = Window()
+                window.found(media_for('/a.mkv'))
+                window.table.selectRow(0)
+                self.assertTrue(window.remove_button.isEnabled())
+                self.assertTrue(window.remove_action.isEnabled())
+                worker = factory(window)
+                with patch.object(worker, 'start'):
+                    window.begin(worker)
+                self.assertFalse(window.remove_button.isEnabled())
+                self.assertFalse(window.remove_action.isEnabled())
+                window.remove_selected()
+                window.show()
+                self.app.processEvents()
+                def inspect_menu(menu, *_):
+                    self.assertFalse(menu.actions()[0].isEnabled())
+                    self.assertIn('gesperrt', menu.actions()[1].text())
+                self.use_file_menu(window, 0, inspect_menu)
+                self.assertEqual(window.rows, {'/a.mkv': 0})
+                # Guard remains effective even if an outdated menu action was enabled.
+                window.remove_action.setEnabled(True)
+                window.remove_action.trigger()
+                self.assertEqual(window.table.rowCount(), 1)
+                window.finished()
+                self.assertTrue(window.remove_button.isEnabled())
+                window.close()
+
+    def test_delete_shortcut_is_scoped_to_table_and_button_tracks_selection(self):
+        window = Window()
+        window.show()
+        window.activateWindow()
+        self.app.processEvents()
+        self.assertFalse(window.remove_button.isEnabled())
+        self.assertFalse(window.remove_action.isEnabled())
+        window.found(media_for('/a.mkv'))
+        window.table.selectRow(0)
+        self.assertTrue(window.remove_button.isEnabled())
+        window.output_dir.setText('abc')
+        window.output_dir.setCursorPosition(1)
+        window.output_dir.setFocus()
+        QTest.keyClick(window.output_dir, Qt.Key.Key_Delete)
+        self.app.processEvents()
+        self.assertEqual(window.output_dir.text(), 'ac')
+        self.assertEqual(window.table.rowCount(), 1)
+        window.table.setFocus()
+        QTest.keyClick(window.table, Qt.Key.Key_Delete)
+        self.app.processEvents()
+        self.assertEqual(window.table.rowCount(), 0)
+        self.assertFalse(window.remove_button.isEnabled())
+        self.assertFalse(window.remove_action.isEnabled())
+        window.close()
+
+    def test_empty_context_click_and_cleared_selection_remove_nothing(self):
+        window = Window()
+        window.found(media_for('/a.mkv'))
+        window.show()
+        self.app.processEvents()
+        window.table.selectRow(0)
+        window.show_file_menu(QPoint(5, window.table.viewport().height() - 5))
+        self.app.processEvents()
+        self.assertFalse(window.file_menu.isVisible())
+        self.assertEqual(window.table.rowCount(), 1)
+        window.table.clearSelection()
+        self.assertFalse(window.remove_button.isEnabled())
+        window.remove_selected()
+        self.assertEqual(window.rows, {'/a.mkv': 0})
         window.close()
 
 

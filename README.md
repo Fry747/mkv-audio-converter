@@ -1,7 +1,8 @@
 # MKV Audio Converter
 
-Version **1.2.0** · Beschädigte Dateien direkt aus der Warteschlange auswählen
-und einzeln oder gemeinsam retten. Konvertierte Tonspuren erhalten passende AC3-Spurtitel.
+Version **1.2.1** · Listeneinträge per Rechtsklick, Entf oder „Auswahl entfernen“
+entfernen. Beschädigte Dateien direkt aus der Warteschlange auswählen und
+retten; konvertierte Tonspuren erhalten passende AC3-Spurtitel.
 Optionaler Rettungsmodus für beschädigte MKVs mit Verlustbericht und
 ausdrücklicher Freigabe. Bedienung und Grenzen:
 [RETTUNGSMODUS.md](RETTUNGSMODUS.md). Die Fehleranalyse von 1.0.1 bleibt unter
@@ -86,6 +87,17 @@ externe Programme und sind nicht im Archiv enthalten.
 - Die Tabelle zeigt die Zahl der DTS-Spuren und den Status. Die Tooltips
   enthalten vollständige Pfade und Details zu den Tonspuren. DTS-HD wird über
   die Matroska-Codec-ID `A_DTS` ebenfalls erkannt.
+- **Einträge entfernen**: Rechtsklick auf eine Zeile → **Aus Liste entfernen**.
+  Mehrere Zeilen mit Strg/Umschalt markieren und gemeinsam entfernen; dafür
+  funktionieren auch **Auswahl entfernen** und die **Entf-Taste** bei Fokus in
+  der Tabelle. Rechtsklick auf eine andere, nicht markierte Zeile wählt nur
+  diese Zeile aus; innerhalb einer Mehrfachauswahl bleibt die Auswahl erhalten.
+  Originaldateien und fertige Ausgaben bleiben auf der Platte erhalten. Auch
+  bereits fertig konvertierte oder beschädigte Einträge lassen sich entfernen.
+  Während Einlesen, Konvertierung oder Rettung ist Entfernen für die gesamte
+  Liste gesperrt. Ohne Auswahl ist die Schaltfläche deaktiviert. Rechtsklick
+  auf den leeren Tabellenbereich entfernt nichts. Protokolle und vorhandene
+  Prüfberichte bleiben als Verlauf erhalten.
 - **Zielordner** leer lassen, um neben jeder Quelldatei zu speichern, oder einen
   gemeinsamen Zielordner wählen. Die Eingabe wird beim nächsten Start übernommen.
 - Standard: **AC3, 448 kbit/s, 48 kHz**. Alternativ 384 oder 640 kbit/s.
@@ -302,6 +314,7 @@ Getestete Umgebung und bisherige Prüfergebnisse: [TESTBERICHT.md](TESTBERICHT.m
 Die Erweiterung 1.1.0 hat einen eigenen [Testbericht](TESTBERICHT-1.1.0.md).
 Prüfung der Spurtitelanpassung: [Testbericht 1.1.1](TESTBERICHT-1.1.1.md).
 Rettung aus der Warteschlange: [Testbericht 1.2.0](TESTBERICHT-1.2.0.md).
+Entfernen von Listeneinträgen: [Testbericht 1.2.1](TESTBERICHT-1.2.1.md).
 
 ## Projektaufbau
 

@@ -9,10 +9,10 @@ import threading
 import time
 
 from PySide6.QtCore import QSettings, QThread, Signal, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QIcon
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
+    QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
     QProgressBar, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -288,17 +288,23 @@ class Window(QMainWindow):
         layout.addWidget(intro)
         toolbar = QHBoxLayout()
         for label, slot in (("Dateien hinzufügen …", self.add_files), ("Ordner hinzufügen …", self.add_folder),
-                            ("Erneut prüfen", self.rescan), ("Auswahl entfernen", self.remove_selected)):
+                            ("Erneut prüfen", self.rescan)):
             button = QPushButton(label)
             button.clicked.connect(slot)
             toolbar.addWidget(button)
             self.busy_controls.append(button)
+        self.remove_button = QPushButton(QIcon.fromTheme("list-remove"), "Auswahl entfernen")
+        self.remove_button.setToolTip("Markierte Einträge aus der Liste entfernen (Entf). Dateien bleiben erhalten.")
+        self.remove_button.clicked.connect(self.remove_selected)
+        toolbar.addWidget(self.remove_button)
+        self.busy_controls.append(self.remove_button)
         self.recursive = QCheckBox("Unterordner einbeziehen")
         self.recursive.setChecked(True)
         toolbar.addWidget(self.recursive)
         self.busy_controls.append(self.recursive)
         layout.addLayout(toolbar)
         self.table = QTableWidget(0, 4)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.table.setHorizontalHeaderLabels(["Datei", "DTS-Spuren", "Status", "Ausgabe"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -308,6 +314,21 @@ class Window(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table.cellDoubleClicked.connect(self.open_output)
+        self.remove_action = QAction(QIcon.fromTheme("list-remove"), "Aus Liste entfernen", self.table)
+        self.remove_action.setShortcut(QKeySequence(Qt.Key.Key_Delete))
+        self.remove_action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.remove_action.setToolTip("Entfernt nur Listeneinträge. Originale und Ausgaben bleiben erhalten.")
+        self.remove_action.triggered.connect(self.remove_selected)
+        self.table.addAction(self.remove_action)
+        # Keep one menu owned by the table. popup() uses the normal event loop,
+        # so worker signals do not run inside a nested menu event loop.
+        self.file_menu = QMenu(self.table)
+        self.file_menu.addAction(self.remove_action)
+        self.remove_locked_hint = self.file_menu.addAction("Entfernen während eines Auftrags gesperrt")
+        self.remove_locked_hint.setEnabled(False)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_file_menu)
+        self.table.itemSelectionChanged.connect(self.refresh_actions)
         self.logs = QPlainTextEdit()
         self.logs.setReadOnly(True)
         self.logs.setMaximumBlockCount(4000)
@@ -431,6 +452,12 @@ class Window(QMainWindow):
 
     def refresh_actions(self):
         idle = self.worker is None
+        selected = len(self.table.selectionModel().selectedRows())
+        self.remove_button.setEnabled(idle and selected > 0)
+        self.remove_action.setEnabled(idle and selected > 0)
+        self.remove_locked_hint.setVisible(not idle)
+        self.remove_action.setText(f"{selected} Einträge aus Liste entfernen" if selected > 1
+                                   else "Aus Liste entfernen")
         count = len(self.recovery_candidates())
         self.repair_button.setText(f"Beschädigte Dateien retten ({count}) …" if count
                                    else "Beschädigte Dateien retten …")
@@ -463,10 +490,26 @@ class Window(QMainWindow):
         if paths:
             self.scan(paths)
 
+    def show_file_menu(self, position):
+        index = self.table.indexAt(position)
+        if not index.isValid():
+            return
+        selected = {i.row() for i in self.table.selectionModel().selectedRows()}
+        # A right-click on another row targets only that row. A right-click
+        # inside a multi-selection keeps the intended group intact.
+        if index.row() not in selected:
+            self.table.clearSelection()
+            self.table.selectRow(index.row())
+        self.refresh_actions()
+        self.file_menu.popup(self.table.viewport().mapToGlobal(position))
+
     def remove_selected(self):
         if self.worker is not None:
             return
         selected = {i.row() for i in self.table.selectionModel().selectedRows()}
+        if not selected:
+            return
+        self.file_menu.close()
         kept = [p for p, row in self.rows.items() if row not in selected]
         for row in sorted(selected, reverse=True):
             self.table.removeRow(row)
@@ -478,10 +521,12 @@ class Window(QMainWindow):
 
     def begin(self, worker):
         self.worker = worker
+        self.file_menu.close()
         self.progress_bar.setValue(0)
         self.phase.setText("Werkzeuge prüfen …")
         for control in self.busy_controls:
             control.setEnabled(False)
+        self.refresh_actions()
         self.start_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         worker.log.connect(self.logs.appendPlainText)
