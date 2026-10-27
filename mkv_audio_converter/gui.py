@@ -11,7 +11,7 @@ import time
 from PySide6.QtCore import QSettings, QThread, Signal, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
     QProgressBar, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
@@ -30,6 +30,7 @@ class Worker(QThread):
     result = Signal(object)
     report_ready = Signal(object)
     fatal = Signal(str)
+    source_damaged = Signal(str, str)
 
     def __init__(self, *, paths=(), media=(), options=None, recursive=True, parent=None):
         super().__init__(parent)
@@ -89,8 +90,12 @@ class Worker(QThread):
                 except (ConversionError, OSError, ValueError) as e:
                     self.state.emit(str(media.path), "Fehler: beschädigte Quelldatei" if
                                     isinstance(e, SourceDamageError) else f"Fehler: {e}")
+                    damaged = isinstance(e, SourceDamageError)
+                    if damaged:
+                        self.source_damaged.emit(str(media.path), str(e))
                     self.log.emit(f"FEHLER: {media.path}: {e}")
-                    report["files"].append({"source": str(media.path), "error": str(e)})
+                    report["files"].append({"source": str(media.path), "error": str(e),
+                                            "source_damage": damaged})
                 self.update_progress((i + 1) / len(self.media), "Datei abgeschlossen")
         except Cancelled as e:
             report["cancelled"] = True
@@ -105,42 +110,149 @@ class Worker(QThread):
                 self.report_ready.emit(report)
 
 
-class RepairWorker(Worker):
-    plan_ready = Signal(object)
+class RepairSelectionDialog(QDialog):
+    """Choose only known damaged entries from the current conversion queue."""
+    def __init__(self, candidates, selected=(), parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Beschädigte Dateien auswählen")
+        self.resize(960, 440)
+        layout = QVBoxLayout(self)
+        intro = QLabel("Diese Dateien aus der aktuellen Liste wurden wegen erkannter Quellschäden "
+                       "nicht konvertiert. Wählen Sie einzelne Dateien oder alle aus. "
+                       "Zunächst wird nur analysiert; die Rettung bestätigen Sie anschließend separat.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.table = QTableWidget(len(candidates), 3)
+        self.table.setHorizontalHeaderLabels(["Datei", "Vollständiger Pfad", "Fehlergrund"])
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.setWordWrap(False)
+        checked = set(selected)
+        for row, (path, reason) in enumerate(candidates):
+            name = QTableWidgetItem(Path(path).name)
+            name.setData(Qt.ItemDataRole.UserRole, path)
+            name.setFlags(name.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            name.setCheckState(Qt.CheckState.Checked if path in checked else Qt.CheckState.Unchecked)
+            for column, item in enumerate((name, QTableWidgetItem(path), QTableWidgetItem(reason.splitlines()[0] if reason else "Quellschaden erkannt"))):
+                item.setToolTip(reason if column == 2 else path)
+                self.table.setItem(row, column, item)
+        layout.addWidget(self.table, 1)
+        selection = QHBoxLayout()
+        self.select_all = QPushButton("Alle auswählen")
+        self.select_none = QPushButton("Auswahl aufheben")
+        self.select_all.clicked.connect(lambda: self.set_checked(True))
+        self.select_none.clicked.connect(lambda: self.set_checked(False))
+        selection.addWidget(self.select_all)
+        selection.addWidget(self.select_none)
+        selection.addStretch()
+        self.count = QLabel()
+        selection.addWidget(self.count)
+        layout.addLayout(selection)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Abbrechen")
+        self.analyze_button = buttons.addButton("Auswahl untersuchen", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.analyze_button.setDefault(True)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.table.itemChanged.connect(self.update_selection)
+        self.update_selection()
 
-    def __init__(self, source, options, plan=None, parent=None):
+    def selected_paths(self):
+        return [self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                for row in range(self.table.rowCount())
+                if self.table.item(row, 0).checkState() == Qt.CheckState.Checked]
+
+    def set_checked(self, checked):
+        for row in range(self.table.rowCount()):
+            self.table.item(row, 0).setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+
+    def update_selection(self, *_):
+        count = len(self.selected_paths())
+        self.count.setText(f"{count} von {self.table.rowCount()} ausgewählt")
+        self.analyze_button.setEnabled(count > 0)
+
+
+class RepairWorker(Worker):
+    plans_ready = Signal(object)
+
+    def __init__(self, sources, options, plans=None, expected_signatures=None, parent=None):
         super().__init__(options=options, parent=parent)
-        self.source, self.plan = source, plan
+        self.sources = tuple(sources)
+        self.expected_signatures = dict(expected_signatures or {})
+        self.plans = tuple(plans) if plans is not None else None
+        if self.plans is not None and tuple(p.media.path for p in self.plans) != self.sources:
+            raise ValueError("Rettungspläne stimmen nicht mit der ausgewählten Warteschlange überein.")
 
     def run(self):
         runner = Runner(self.cancel, self.log.emit)
-        report = {"application": f"MKV Audio Converter {__version__}", "kind": "recovery", "files": []}
+        report = {"application": f"MKV Audio Converter {__version__}",
+                  "kind": "recovery_analysis" if self.plans is None else "recovery",
+                  "started_utc": datetime.now(timezone.utc).isoformat(),
+                  "options": asdict(self.options), "files": []}
+        analyzed = []
+        index = 0
         try:
             report["tools"] = check_tools(runner)
-            if self.plan is None:
-                media = inspect(self.source, runner)
-                self.found.emit(media)
-                self.state.emit(str(media.path), "Rettungsmöglichkeiten untersuchen …")
-                plan = analyze(media, runner, self.update_progress)
-                report["analysis"] = plan.summary()
-                self.plan_ready.emit(plan)
-            else:
-                self.state.emit(str(self.source), "Rettung läuft …")
-                result = recover(self.plan, self.options, runner, accept_loss=True,
-                                 progress=self.update_progress)
-                self.result.emit(result)
-                report["files"].append(asdict(result))
-                report["analysis"] = self.plan.summary()
+            for index, source in enumerate(self.sources):
+                runner.check_cancel()
+                def progress(value, phase, index=index, source=source):
+                    self.update_progress((index + value) / len(self.sources), f"{source.name} · {phase}")
+                try:
+                    if self.plans is None:
+                        self.state.emit(str(source), "Rettungsmöglichkeiten untersuchen …")
+                        media = inspect(source, runner)
+                        expected = self.expected_signatures.get(str(source))
+                        if expected is not None and media.signature != expected:
+                            raise ConversionError("Quelldatei wurde seit der Schadenserkennung verändert. "
+                                                  "Bitte die Dateiliste erneut prüfen.")
+                        if not media.dts_tracks:
+                            raise ConversionError("Keine DTS-Spur mehr vorhanden. Bitte die Dateiliste erneut prüfen.")
+                        plan = analyze(media, runner, progress)
+                        analyzed.append(plan)
+                        report["files"].append({"source": str(source), "analysis": plan.summary()})
+                        self.state.emit(str(source), "Analysiert · wartet auf Bestätigung")
+                    else:
+                        self.state.emit(str(source), "Rettung läuft …")
+                        result = recover(self.plans[index], self.options, runner, accept_loss=True,
+                                         progress=progress)
+                        self.result.emit(result)
+                        entry = asdict(result)
+                        entry["analysis"] = self.plans[index].summary()
+                        report["files"].append(entry)
+                except Cancelled:
+                    raise
+                except (ConversionError, OSError, ValueError) as error:
+                    self.state.emit(str(source), "Rettungsanalyse fehlgeschlagen" if self.plans is None
+                                    else "Fehler bei der Rettung")
+                    self.log.emit(f"FEHLER: {source}: {error}")
+                    report["files"].append({"source": str(source), "error": str(error)})
+                self.update_progress((index + 1) / len(self.sources), "Datei abgeschlossen")
+            runner.check_cancel()
+            if analyzed:
+                self.plans_ready.emit(analyzed)
         except Cancelled as error:
-            self.state.emit(str(self.source), "Abgebrochen")
             report["cancelled"] = True
+            processed = {str(entry["source"]) for entry in report["files"]}
+            for source in self.sources:
+                if str(source) not in processed:
+                    self.state.emit(str(source), "Abgebrochen · Rettung weiterhin verfügbar")
+                    report["files"].append({"source": str(source), "error": "Abgebrochen"})
+            # Analyzed plans are not submitted for confirmation after cancellation.
+            for plan in analyzed:
+                self.state.emit(str(plan.media.path), "Rettungsanalyse beendet · keine Ausgabe")
             self.log.emit(str(error))
         except Exception as error:
-            self.state.emit(str(self.source), "Fehler bei der Rettung")
+            report["fatal_error"] = str(error)
             self.log.emit(str(error))
-            report["error"] = str(error)
+            for source in self.sources[index:]:
+                self.state.emit(str(source), "Rettungsauftrag fehlgeschlagen")
             self.fatal.emit(str(error))
         finally:
+            report["finished_utc"] = datetime.now(timezone.utc).isoformat()
             self.report_ready.emit(report)
 
 
@@ -155,8 +267,10 @@ class Window(QMainWindow):
         self.rows: dict[str, int] = {}
         self.worker: Worker | None = None
         self.report = None
-        self.pending_repair = None
+        self.pending_repairs = None
         self.recovery_options = None
+        self.recovery_analysis_report = None
+        self.damage_errors: dict[str, str] = {}
         self.outputs: dict[str, Path] = {}
         self.busy_controls = []
         body = QWidget()
@@ -242,7 +356,8 @@ class Window(QMainWindow):
         self.save_report.clicked.connect(self.export_report)
         self.save_report.setEnabled(False)
         actions.addWidget(self.save_report)
-        self.repair_button = QPushButton("Beschädigte Datei retten …")
+        self.repair_button = QPushButton("Beschädigte Dateien retten …")
+        self.repair_button.setEnabled(False)
         self.repair_button.clicked.connect(self.start_repair_analysis)
         self.busy_controls.append(self.repair_button)
         actions.addWidget(self.repair_button)
@@ -258,6 +373,7 @@ class Window(QMainWindow):
         actions.addWidget(self.start_button)
         layout.addLayout(actions)
         self.setAcceptDrops(True)
+        self.refresh_actions()
 
     def add_files(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "MKV-Dateien auswählen", "", "Matroska (*.mkv *.MKV)")
@@ -292,6 +408,9 @@ class Window(QMainWindow):
 
     def found(self, media):
         path = str(media.path)
+        previous = self.media.get(path)
+        if previous is not None and previous.signature != media.signature:
+            self.damage_errors.pop(path, None)
         self.media[path] = media
         row = self.row_for(path)
         self.table.item(row, 1).setText(str(len(media.dts_tracks)))
@@ -299,7 +418,32 @@ class Window(QMainWindow):
                    f"{t.properties.get('language_ietf', t.properties.get('language', 'und'))} · "
                    f"{t.properties.get('track_name', '')}" for t in media.dts_tracks]
         self.table.item(row, 1).setToolTip("\n".join(details) or "Keine DTS-Spur")
-        self.set_state(path, "Bereit" if media.dts_tracks else "Übersprungen · kein DTS")
+        if path in self.damage_errors:
+            self.mark_damaged(path, self.damage_errors[path])
+        else:
+            self.set_state(path, "Bereit" if media.dts_tracks else "Übersprungen · kein DTS")
+        self.refresh_actions()
+
+    def recovery_candidates(self):
+        return [(path, self.damage_errors[path]) for path in self.rows
+                if path in self.damage_errors and path in self.media
+                and self.media[path].dts_tracks and path not in self.outputs]
+
+    def refresh_actions(self):
+        idle = self.worker is None
+        count = len(self.recovery_candidates())
+        self.repair_button.setText(f"Beschädigte Dateien retten ({count}) …" if count
+                                   else "Beschädigte Dateien retten …")
+        self.repair_button.setEnabled(idle and count > 0)
+        self.repair_button.setToolTip("Einzelne oder alle erkannten beschädigten Dateien aus der Liste auswählen."
+                                     if count else "Verfügbar, sobald die Konvertierung einen Quellschaden erkennt.")
+        self.start_button.setEnabled(idle and any(m.dts_tracks and p not in self.outputs
+                                     and p not in self.damage_errors for p, m in self.media.items()))
+
+    def mark_damaged(self, path, reason):
+        self.damage_errors[path] = reason
+        self.set_state(path, "Fehler: beschädigte Quelldatei\n" + reason)
+        self.refresh_actions()
 
     def scan(self, paths):
         if self.worker is not None:
@@ -307,22 +451,30 @@ class Window(QMainWindow):
         self.begin(Worker(paths=paths, recursive=self.recursive.isChecked(), parent=self))
 
     def rescan(self):
+        if self.worker is not None:
+            return
         paths = [Path(p) for p in self.rows]
         self.media.clear()
         self.outputs.clear()
+        self.damage_errors.clear()
+        self.refresh_actions()
         for row in range(self.table.rowCount()):
             self.table.item(row, 3).setText("")
         if paths:
             self.scan(paths)
 
     def remove_selected(self):
+        if self.worker is not None:
+            return
         selected = {i.row() for i in self.table.selectionModel().selectedRows()}
         kept = [p for p, row in self.rows.items() if row not in selected]
         for row in sorted(selected, reverse=True):
             self.table.removeRow(row)
         self.rows = {p: row for row, p in enumerate(kept)}
         self.media = {p: m for p, m in self.media.items() if p in self.rows}
-        self.start_button.setEnabled(any(m.dts_tracks and p not in self.outputs for p, m in self.media.items()))
+        self.outputs = {p: output for p, output in self.outputs.items() if p in self.rows}
+        self.damage_errors = {p: reason for p, reason in self.damage_errors.items() if p in self.rows}
+        self.refresh_actions()
 
     def begin(self, worker):
         self.worker = worker
@@ -335,17 +487,21 @@ class Window(QMainWindow):
         worker.log.connect(self.logs.appendPlainText)
         worker.found.connect(self.found)
         worker.state.connect(self.set_state)
+        worker.source_damaged.connect(self.mark_damaged)
         worker.progress.connect(self.progress_changed)
         worker.result.connect(self.completed)
         worker.report_ready.connect(self.report_received)
         worker.fatal.connect(lambda text: QMessageBox.critical(self, "Verarbeitung fehlgeschlagen", text))
         if isinstance(worker, RepairWorker):
-            worker.plan_ready.connect(self.repair_analyzed)
+            worker.plans_ready.connect(self.repair_analyzed)
         worker.finished.connect(self.finished)
         worker.start()
 
     def start(self):
-        items = [m for p, m in self.media.items() if m.dts_tracks and p not in self.outputs]
+        if self.worker is not None:
+            return
+        items = [m for p, m in self.media.items() if m.dts_tracks and p not in self.outputs
+                 and p not in self.damage_errors]
         if not items:
             return
         directory = self.output_dir.text().strip()
@@ -354,56 +510,95 @@ class Window(QMainWindow):
                           (384, 448, 640)[self.bitrate.currentIndex()],
                           self.downmix.isChecked(), self.deep.isChecked())
         self.report = None
+        self.recovery_analysis_report = None
         self.save_report.setEnabled(False)
         self.begin(Worker(media=items, options=options, parent=self))
 
     def start_repair_analysis(self):
-        selected = {i.row() for i in self.table.selectionModel().selectedRows()}
-        source = next((Path(path) for path, row in self.rows.items() if row in selected), None) if len(selected) == 1 else None
-        if source is None:
-            path, _ = QFileDialog.getOpenFileName(self, "Beschädigte MKV untersuchen", "", "Matroska (*.mkv *.MKV)")
-            if not path:
+        if self.worker is not None:
+            return
+        candidates = self.recovery_candidates()
+        if not candidates:
+            return
+        selected_rows = {i.row() for i in self.table.selectionModel().selectedRows()}
+        selected = [path for path, _ in candidates if self.rows[path] in selected_rows]
+        dialog = RepairSelectionDialog(candidates, selected or [p for p, _ in candidates], self)
+        try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
-            source = Path(path)
+            checked = set(dialog.selected_paths())
+        finally:
+            dialog.deleteLater()
+        sources = [Path(path) for path, _ in candidates if path in checked]
+        if not sources:
+            return
         directory = self.output_dir.text().strip()
+        self.settings.setValue("output_dir", directory)
         self.recovery_options = Options(Path(directory) if directory else None,
                                         (384, 448, 640)[self.bitrate.currentIndex()],
                                         self.downmix.isChecked(), True)
-        self.pending_repair = None
-        self.begin(RepairWorker(source, self.recovery_options, parent=self))
+        self.pending_repairs = None
+        self.recovery_analysis_report = None
+        self.report = None
+        self.save_report.setEnabled(False)
+        self.begin(RepairWorker(sources, self.recovery_options,
+                                expected_signatures={str(p): self.media[str(p)].signature for p in sources},
+                                parent=self))
 
-    def repair_analyzed(self, plan):
-        self.pending_repair = plan
+    def repair_analyzed(self, plans):
+        self.pending_repairs = plans
 
-    def confirm_repair(self, plan):
-        summary = plan.summary()
+    def confirm_repair(self, plans):
         message = QMessageBox(self)
         message.setIcon(QMessageBox.Icon.Warning)
         message.setWindowTitle("Rettung mit möglichen Datenverlusten")
-        message.setText(f"{plan.media.path.name}: {len(plan.damage)} Bereiche können nicht übernommen werden "
-                        f"({summary['excluded_bytes'] / 1024**2:.1f} MiB).")
-        message.setInformativeText("Nur vorhandene, lesbare Daten können übernommen werden. "
+        summaries = [plan.summary() for plan in plans]
+        failures = [entry for entry in (self.recovery_analysis_report or {}).get("files", [])
+                    if "error" in entry]
+        count = len(plans)
+        regions = sum(len(plan.damage) for plan in plans)
+        lost = sum(summary['excluded_bytes'] for summary in summaries)
+        names = "\n".join(plan.media.path.name for plan in plans[:8])
+        if count > 8:
+            names += f"\n… und {count - 8} weitere Dateien (siehe Details)"
+        message.setText(f"{count} Datei(en) zur Rettung:\n{names}\n\n"
+                        f"{regions} Bereiche können nicht übernommen werden ({lost / 1024**2:.1f} MiB).")
+        message.setInformativeText(
+            (f"{len(failures)} weitere ausgewählte Datei(en) konnten nicht analysiert werden "
+             "und werden nicht gerettet (siehe Details). " if failures else "") +
+            "Nur vorhandene, lesbare Daten können übernommen werden. "
             "Bildaussetzer, Stille und fehlende Inhalte sind möglich. Die Zeitachse bleibt erhalten. "
-            "Die Ausgabe wird ausdrücklich als gerettete Kopie mit Verlustbericht gekennzeichnet. "
-            "Soll die Rettung mit anschließender AC3-Konvertierung ausgeführt werden?")
+            "Jede Ausgabe wird als gerettete Kopie mit eigenem Verlustbericht gekennzeichnet. "
+            "Die ausgewählten Dateien werden nacheinander verarbeitet. "
+            "Soll die Rettung mit anschließender AC3-Konvertierung für diese Dateien ausgeführt werden?")
         def clock(seconds):
             if seconds is None:
                 return "unbekannt"
             value = max(0, int(seconds))
             return f"{value // 3600:02d}:{value // 60 % 60:02d}:{value % 60:02d}"
-        positions = [f"• {clock(d.before_seconds)} bis {clock(d.after_seconds)}" for d in plan.damage[:20]]
-        if len(plan.damage) > 20:
-            positions.append(f"… und {len(plan.damage) - 20} weitere Stellen im Verlustbericht")
-        message.setDetailedText("Umgebungen der Schadstellen zur Nachkontrolle (ungefähre Zeitmarken):\n" +
-                                ("\n".join(positions) or "Keine strukturellen Schäden gefunden; Audiodecodierfehler bleiben möglich."))
+        details = []
+        for plan, summary in zip(plans, summaries):
+            details += [str(plan.media.path),
+                        f"{len(plan.damage)} Bereiche, {summary['excluded_bytes'] / 1024**2:.1f} MiB"]
+            details += [f"• {clock(d.before_seconds)} bis {clock(d.after_seconds)}" for d in plan.damage[:20]]
+            if len(plan.damage) > 20:
+                details.append(f"… und {len(plan.damage) - 20} weitere Stellen im Verlustbericht")
+            if not plan.damage:
+                details.append("Keine strukturellen Schäden gefunden; Audiodecodierfehler bleiben möglich.")
+            details.append("")
+        if failures:
+            details.append("Analyse fehlgeschlagen, von der Rettung ausgeschlossen:")
+            details += [f"{entry['source']}: {entry['error']}" for entry in failures]
+        message.setDetailedText("Schadstellen je Datei (ungefähre Zeitmarken):\n" + "\n".join(details))
         message.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-        message.button(QMessageBox.StandardButton.Yes).setText("Rettung und AC3-Konvertierung starten")
+        message.button(QMessageBox.StandardButton.Yes).setText(f"{count} Datei(en) retten und AC3 konvertieren")
         message.button(QMessageBox.StandardButton.Cancel).setText("Abbrechen")
         message.setDefaultButton(QMessageBox.StandardButton.Cancel)
         if message.exec() == QMessageBox.StandardButton.Yes:
-            self.begin(RepairWorker(plan.media.path, self.recovery_options, plan=plan, parent=self))
+            self.begin(RepairWorker([p.media.path for p in plans], self.recovery_options, plans=plans, parent=self))
         else:
-            self.set_state(str(plan.media.path), "Rettungsanalyse beendet · keine Ausgabe")
+            for plan in plans:
+                self.set_state(str(plan.media.path), "Rettungsanalyse beendet · keine Ausgabe")
 
     def progress_changed(self, value, phase):
         self.progress_bar.setValue(round(value * 1000))
@@ -412,6 +607,7 @@ class Window(QMainWindow):
     def completed(self, result):
         path = str(result.source)
         if result.output:
+            self.damage_errors.pop(path, None)
             self.outputs[path] = result.output
             item = self.table.item(self.row_for(path), 3)
             item.setText(result.output.name)
@@ -424,8 +620,13 @@ class Window(QMainWindow):
         self.set_state(path, status)
         for check in result.checks:
             self.logs.appendPlainText("✓ " + check)
+        self.refresh_actions()
 
     def report_received(self, report):
+        if report.get("kind") == "recovery_analysis":
+            self.recovery_analysis_report = report
+        elif report.get("kind") == "recovery" and self.recovery_analysis_report is not None:
+            report["analysis_report"] = self.recovery_analysis_report
         self.report = report
         self.save_report.setEnabled(True)
 
@@ -436,11 +637,19 @@ class Window(QMainWindow):
         for control in self.busy_controls:
             control.setEnabled(True)
         self.cancel_button.setEnabled(False)
-        self.start_button.setEnabled(any(m.dts_tracks and p not in self.outputs for p, m in self.media.items()))
-        self.phase.setText("Vorgang beendet. Status und Protokoll enthalten die Ergebnisse.")
-        if self.pending_repair is not None:
-            plan, self.pending_repair = self.pending_repair, None
-            self.confirm_repair(plan)
+        self.refresh_actions()
+        count = len(self.recovery_candidates())
+        self.phase.setText(
+            f"Vorgang beendet. {count} beschädigte Datei(en) können über „Beschädigte Dateien retten“ "
+            "ausgewählt werden." if count else
+            "Vorgang beendet. Status und Protokoll enthalten die Ergebnisse.")
+        if self.pending_repairs is not None:
+            plans, self.pending_repairs = self.pending_repairs, None
+            if worker.cancel.is_set():
+                for plan in plans:
+                    self.set_state(str(plan.media.path), "Rettungsanalyse beendet · keine Ausgabe")
+            else:
+                self.confirm_repair(plans)
 
     def cancel_job(self):
         if self.worker:

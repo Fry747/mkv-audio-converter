@@ -1,6 +1,7 @@
 # MKV Audio Converter
 
-Version **1.1.1** · Konvertierte Tonspuren erhalten passende AC3-Spurtitel.
+Version **1.2.0** · Beschädigte Dateien direkt aus der Warteschlange auswählen
+und einzeln oder gemeinsam retten. Konvertierte Tonspuren erhalten passende AC3-Spurtitel.
 Optionaler Rettungsmodus für beschädigte MKVs mit Verlustbericht und
 ausdrücklicher Freigabe. Bedienung und Grenzen:
 [RETTUNGSMODUS.md](RETTUNGSMODUS.md). Die Fehleranalyse von 1.0.1 bleibt unter
@@ -95,6 +96,21 @@ externe Programme und sind nicht im Archiv enthalten.
 - **Konvertieren** startet die Warteschlange. Sie wird nacheinander abgearbeitet,
   damit große Videodateien den Datenträger nicht durch parallele Remux-Vorgänge
   überlasten. Dateien ohne DTS werden übersprungen.
+- **Beschädigte Dateien retten (N) …** ist verfügbar, sobald die Konvertierung
+  Quellschäden erkannt hat. Die Auswahl enthält ausschließlich diese Dateien
+  aus der aktuellen Liste, mit vollständigen Pfaden und Fehlergründen. Einzelne
+  Einträge anhaken oder **Alle auswählen** verwenden. Ausgewählte beschädigte
+  Tabellenzeilen sind vorausgewählt; sonst alle verfügbaren beschädigten Dateien.
+  Ein Dateidialog wird dabei nicht geöffnet. Die Analyse läuft zunächst nur
+  lesend. Danach werden die Schadstellen je Datei in einer gemeinsamen
+  Verlustbestätigung angezeigt. Erst die ausdrückliche Bestätigung startet
+  Rettung und AC3-Konvertierung für die erfolgreich analysierten Dateien.
+  Details und Grenzen: [RETTUNGSMODUS.md](RETTUNGSMODUS.md).
+- Erkannte beschädigte Dateien werden bei weiteren normalen Konvertierungen
+  ausgelassen. Ein Rettungsfehler stoppt die übrigen ausgewählten Dateien nicht.
+  Erfolgreich gerettete Einträge verschwinden aus der Rettungsauswahl;
+  fehlgeschlagene oder abgebrochene bleiben erneut auswählbar. Speicherplatz-,
+  Werkzeug- und sonstige allgemeine Fehler gelten nicht als erkannter Quellschaden.
 - **Abbrechen** beendet die aktuellen Werkzeuge und entfernt die unvollständige
   Ausgabe. Bereits fertiggestellte Dateien bleiben erhalten. Beim Schließen
   während eines Auftrags wird zuerst abgebrochen; anschließend kann das Fenster
@@ -104,8 +120,9 @@ externe Programme und sind nicht im Archiv enthalten.
   Fehler, Werkzeugversionen, Optionen und die ausgeführten Prüfungen je Datei.
 - Ein Doppelklick auf eine fertige Zeile öffnet ihren Ausgabeordner.
 - **Erneut prüfen** liest die Quellen erneut ein und ermöglicht einen weiteren
-  Durchlauf, etwa mit einer anderen Bitrate. Fertige Dateien werden innerhalb
-  derselben Warteschlange sonst nicht erneut verarbeitet.
+  Durchlauf, etwa mit einer anderen Bitrate. Dabei werden auch die bisherigen
+  Schadensmarkierungen zurückgesetzt; dies repariert keine Quelle. Fertige
+  Dateien werden innerhalb derselben Warteschlange sonst nicht erneut verarbeitet.
 
 Aus `Film.mkv` wird `Film_ac3.mkv`. Existiert der Name bereits, folgen
 `Film_ac3_2.mkv`, `Film_ac3_3.mkv` usw. Das gilt auch bei gleichen Quelldateinamen
@@ -284,6 +301,7 @@ Konverter sind diese beiden Encoder nicht nötig. GUI-Tests werden ohne PySide6
 Getestete Umgebung und bisherige Prüfergebnisse: [TESTBERICHT.md](TESTBERICHT.md).
 Die Erweiterung 1.1.0 hat einen eigenen [Testbericht](TESTBERICHT-1.1.0.md).
 Prüfung der Spurtitelanpassung: [Testbericht 1.1.1](TESTBERICHT-1.1.1.md).
+Rettung aus der Warteschlange: [Testbericht 1.2.0](TESTBERICHT-1.2.0.md).
 
 ## Projektaufbau
 

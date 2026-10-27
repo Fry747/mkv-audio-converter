@@ -1,4 +1,4 @@
-# Rettungsmodus – Version 1.1.0
+# Rettungsmodus – Version 1.2.0
 
 Der neue Modus kann eine **konvertierbare Rettungskopie** aus noch lesbaren
 Daten einer beschädigten MKV erzeugen. Er rekonstruiert keine verlorenen Bilder
@@ -8,21 +8,58 @@ gekennzeichnet.
 
 ## Bedienung
 
-1. Datei in der Tabelle auswählen und **„Beschädigte Datei retten …“** anklicken.
-   Ohne ausgewählte Zeile öffnet sich eine Dateiauswahl.
-2. Die Anwendung untersucht die Datei ausschließlich lesend. Die Analyse zeigt
-   die auszulassenden Bereiche und ihre ungefähren Zeitmarken an.
-3. Die Rettung beginnt erst nach dem ausdrücklichen Klick auf
-   **„Rettung und AC3-Konvertierung starten“**. „Abbrechen“ ist vorausgewählt.
-4. Die Ausgabe heißt beispielsweise `Film_recovered_ac3.mkv`. Daneben entsteht
+1. Dateien wie gewohnt hinzufügen und **„Konvertieren“** starten. Erkennt die
+   Konvertierung einen Quellschaden, bleibt die betreffende Datei mit einem
+   Fehlerstatus in der Tabelle. Der Button **„Beschädigte Dateien retten (N) …“**
+   wird nach Abschluss des laufenden Auftrags verfügbar.
+2. Der Button öffnet eine Auswahl ausschließlich dieser beschädigten Dateien
+   aus der aktuellen Warteschlange. Namen, vollständige Pfade und Fehlergründe
+   helfen auch bei gleichnamigen Dateien. Einzelne Dateien anhaken oder
+   **„Alle auswählen“** verwenden. **„Auswahl aufheben“** entfernt die Häkchen.
+   Ausgewählte beschädigte Zeilen der Haupttabelle sind vorausgewählt; ohne
+   passende Zeilenauswahl sind alle verfügbaren beschädigten Dateien angehakt.
+   Andere Dateien können in diesem Dialog nicht hinzugefügt werden.
+3. **„Auswahl untersuchen“** analysiert die gewählten Dateien nacheinander und
+   ausschließlich lesend. Ein Fehler bei einer Datei verhindert die Analyse
+   der übrigen nicht.
+4. Anschließend zeigt eine gemeinsame Verlustbestätigung die erfolgreich
+   analysierten Dateien, ausgeschlossene Bereiche und Datenmenge. Unter
+   **Details** stehen vollständige Pfade und ungefähre Zeitmarken je Datei.
+   Fehlgeschlagene Analysen werden ausdrücklich als ausgeschlossen aufgeführt.
+   Die Rettung beginnt erst nach dem ausdrücklichen Klick auf
+   **„N Datei(en) retten und AC3 konvertieren“**. **„Abbrechen“** ist vorausgewählt
+   und erzeugt keine Ausgabe. Bereits die erste Dateiauswahl kann ohne Analyse
+   abgebrochen werden.
+5. Die bestätigten Dateien werden nacheinander gerettet und konvertiert. Ein
+   Fehler betrifft nur die jeweilige Datei. **„Abbrechen“** während der Arbeit
+   beendet den aktuellen Versuch und alle noch ausstehenden Dateien; bereits
+   fertig veröffentlichte Ausgaben bleiben erhalten.
+6. Die Ausgabe heißt beispielsweise `Film_recovered_ac3.mkv`. Daneben entsteht
    automatisch `Film_recovered_ac3.recovery.json` mit dem Verlust-/Prüfbericht.
    Namenskollisionen erhalten fortlaufende Nummern; Dateien werden nicht ersetzt.
-5. Die GUI meldet **„Gerettet · mögliche Bild-/Tonlücken“**. Die genannten
+7. Die GUI meldet **„Gerettet · mögliche Bild-/Tonlücken“**. Erfolgreich gerettete
+   Dateien sind anschließend nicht mehr in der Rettungsauswahl enthalten.
+   Fehlgeschlagene oder abgebrochene bleiben erneut auswählbar. Die genannten
    Prüfstellen sollten anschließend in einem Player angesehen und angehört werden.
 
-Die normale Schaltfläche **„Konvertieren“** arbeitet weiterhin streng und
-bricht bei beschädigten Quellen ab. Der Rettungsmodus ist ein eigener,
-ausdrücklich gewählter Arbeitsablauf für einzelne MKVs mit DTS-Audio.
+Die normale Schaltfläche **„Konvertieren“** arbeitet weiterhin streng.
+Bereits als beschädigt erkannte Einträge werden bei einem weiteren normalen
+Lauf ausgelassen. **„Erneut prüfen“** setzt die bisherigen Schadensmarkierungen
+zurück und ermöglicht einen neuen normalen Versuch; es repariert keine Datei.
+Die Auswahl und die Erkennung gelten für die aktuelle Sitzung.
+
+Nur vom Konverter ausdrücklich erkannte **Quellschäden** werden für die
+GUI-Rettung angeboten. Allgemeine Fehler wie ein volles Ziellaufwerk, fehlende
+Werkzeuge oder eine ausgeschaltete Downmix-Option sind keine Schadensdiagnose.
+Wurde eine Quelle seit der Schadenserkennung verändert oder ausgetauscht,
+verweigert die Analyse den alten Auftrag und verlangt ein erneutes Prüfen der
+Dateiliste. Für eine bewusst gewählte Datei unabhängig von der GUI-Liste steht
+weiterhin die unten beschriebene Einzeldatei-CLI zur Verfügung.
+
+Der exportierbare GUI-Prüfbericht enthält die Analyseergebnisse bzw. Fehler
+aller ausgewählten Dateien. Nach einem Rettungslauf enthält er zusätzlich
+alle Rettungsergebnisse und den zugehörigen Analysebericht (`analysis_report`).
+Jede gerettete MKV erhält weiterhin ihren eigenen Verlustbericht.
 
 ## Was gerettet wird
 
