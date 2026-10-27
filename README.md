@@ -1,7 +1,9 @@
 # MKV Audio Converter
 
-Version **1.0.1** · Kapitelprüfung korrigiert, Fortschritt stabilisiert und
-beschädigte Matroska-Quellen frühzeitig erkannt. Details: [FEHLERANALYSE.md](FEHLERANALYSE.md).
+Version **1.1.0** · Optionaler Rettungsmodus für beschädigte MKVs mit
+Verlustbericht und ausdrücklicher Freigabe. Bedienung und Grenzen:
+[RETTUNGSMODUS.md](RETTUNGSMODUS.md). Die Fehleranalyse von 1.0.1 bleibt unter
+[FEHLERANALYSE.md](FEHLERANALYSE.md) erhalten.
 
 Eine native PySide6-Anwendung für Fedora KDE: MKV-Dateien oder ganze Ordner
 auswählen, alle DTS-Tonspuren nach AC3 umwandeln und die fertigen Dateien separat
@@ -184,8 +186,8 @@ Stille erzeugen; die Anwendung repariert keine bereits falsch synchronisierte
 Quelle. Ein erfolgreicher Container-/Datencheck ersetzt keinen Wiedergabetest
 auf dem konkreten Fernseher.
 
-Bei einer MKVToolNix-Warnung über eine beschädigte EBML-Struktur bzw. eine
-Wiederherstellungssuche (`Resyncing`) bricht der Auftrag sofort ab. Auch echte
+Im normalen Konvertierungsmodus wird bei einer MKVToolNix-Warnung über eine beschädigte EBML-Struktur bzw. eine
+Wiederherstellungssuche (`Resyncing`) der Auftrag sofort abgebrochen. Auch echte
 FFmpeg-Decodierfehler brechen die Audio-Konvertierung ab (`-xerror`). Dadurch
 entsteht aus einer defekten Quelle keine vermeintlich erfolgreich geprüfte
 Datei mit übersprungenen Abschnitten. Eine solche Quelle separat reparieren
@@ -226,6 +228,10 @@ bash start.sh --cli --bitrate 640 --report bericht.json "Film.mkv"
 bash start.sh --cli --no-recursive --no-downmix --quick "/Pfad/zu/Filmen"
 ```
 
+Für beschädigte Einzeldateien stehen zusätzlich `--analyze-repair` und
+`--recover --accept-loss` zur Verfügung. Eine erstellte Rettungskopie liefert
+Rückgabecode **3** und immer einen Verlustbericht; siehe [Rettungsmodus](RETTUNGSMODUS.md).
+
 Der Bericht darf noch nicht existieren. Rückgabecode 0: alle Dateien erfolgreich
 verarbeitet oder ohne DTS übersprungen; 1: Fehler/Abbruch; 2: fehlerhafte
 Argumente. Strg+C bricht sicher ab. Die reine CLI benötigt PySide6 nicht.
@@ -243,7 +249,8 @@ DTS-Testencoder `dca` und den FFV1-Encoder bereitstellen. Für den eigentlichen
 Konverter sind diese beiden Encoder nicht nötig. GUI-Tests werden ohne PySide6
 übersprungen, Medientests ohne externe Werkzeuge ebenfalls.
 
-Getestete Umgebung und konkrete Prüfergebnisse: [TESTBERICHT.md](TESTBERICHT.md).
+Getestete Umgebung und bisherige Prüfergebnisse: [TESTBERICHT.md](TESTBERICHT.md).
+Die Erweiterung 1.1.0 hat einen eigenen [Testbericht](TESTBERICHT-1.1.0.md).
 
 ## Projektaufbau
 
@@ -251,6 +258,7 @@ Getestete Umgebung und konkrete Prüfergebnisse: [TESTBERICHT.md](TESTBERICHT.md
 mkv_audio_converter/
   core.py          Konvertierung, Metadaten, Prozesse, Sicherheit, Validierung
   gui.py           Native Qt-Oberfläche und Hintergrundverarbeitung
+  repair.py        Cluster-Analyse, optionale Rettung und Verlustberichte
   __main__.py      GUI-Start und optionale CLI
 tests/             Unit-, Medienintegrations- und GUI-Tests
 start.sh           Direkter Anwendungsstart

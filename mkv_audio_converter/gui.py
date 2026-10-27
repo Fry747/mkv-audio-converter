@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from .repair import RepairPlan, analyze, recover
 from . import __version__
 from .core import Cancelled, ConversionError, Media, Options, Runner, SourceDamageError, check_tools, convert, discover, inspect
 
@@ -104,10 +105,49 @@ class Worker(QThread):
                 self.report_ready.emit(report)
 
 
+class RepairWorker(Worker):
+    plan_ready = Signal(object)
+
+    def __init__(self, source, options, plan=None, parent=None):
+        super().__init__(options=options, parent=parent)
+        self.source, self.plan = source, plan
+
+    def run(self):
+        runner = Runner(self.cancel, self.log.emit)
+        report = {"application": f"MKV Audio Converter {__version__}", "kind": "recovery", "files": []}
+        try:
+            report["tools"] = check_tools(runner)
+            if self.plan is None:
+                media = inspect(self.source, runner)
+                self.found.emit(media)
+                self.state.emit(str(media.path), "Rettungsmöglichkeiten untersuchen …")
+                plan = analyze(media, runner, self.update_progress)
+                report["analysis"] = plan.summary()
+                self.plan_ready.emit(plan)
+            else:
+                self.state.emit(str(self.source), "Rettung läuft …")
+                result = recover(self.plan, self.options, runner, accept_loss=True,
+                                 progress=self.update_progress)
+                self.result.emit(result)
+                report["files"].append(asdict(result))
+                report["analysis"] = self.plan.summary()
+        except Cancelled as error:
+            self.state.emit(str(self.source), "Abgebrochen")
+            report["cancelled"] = True
+            self.log.emit(str(error))
+        except Exception as error:
+            self.state.emit(str(self.source), "Fehler bei der Rettung")
+            self.log.emit(str(error))
+            report["error"] = str(error)
+            self.fatal.emit(str(error))
+        finally:
+            self.report_ready.emit(report)
+
+
 class Window(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MKV Audio Converter")
+        self.setWindowTitle(f"MKV Audio Converter {__version__}")
         self.setWindowIcon(QIcon.fromTheme("audio-x-generic"))
         self.resize(1120, 780)
         self.settings = QSettings("MKVAudioConverter", "MKVAudioConverter")
@@ -115,6 +155,8 @@ class Window(QMainWindow):
         self.rows: dict[str, int] = {}
         self.worker: Worker | None = None
         self.report = None
+        self.pending_repair = None
+        self.recovery_options = None
         self.outputs: dict[str, Path] = {}
         self.busy_controls = []
         body = QWidget()
@@ -200,6 +242,10 @@ class Window(QMainWindow):
         self.save_report.clicked.connect(self.export_report)
         self.save_report.setEnabled(False)
         actions.addWidget(self.save_report)
+        self.repair_button = QPushButton("Beschädigte Datei retten …")
+        self.repair_button.clicked.connect(self.start_repair_analysis)
+        self.busy_controls.append(self.repair_button)
+        actions.addWidget(self.repair_button)
         actions.addStretch()
         self.cancel_button = QPushButton("Abbrechen")
         self.cancel_button.setEnabled(False)
@@ -293,6 +339,8 @@ class Window(QMainWindow):
         worker.result.connect(self.completed)
         worker.report_ready.connect(self.report_received)
         worker.fatal.connect(lambda text: QMessageBox.critical(self, "Verarbeitung fehlgeschlagen", text))
+        if isinstance(worker, RepairWorker):
+            worker.plan_ready.connect(self.repair_analyzed)
         worker.finished.connect(self.finished)
         worker.start()
 
@@ -309,6 +357,54 @@ class Window(QMainWindow):
         self.save_report.setEnabled(False)
         self.begin(Worker(media=items, options=options, parent=self))
 
+    def start_repair_analysis(self):
+        selected = {i.row() for i in self.table.selectionModel().selectedRows()}
+        source = next((Path(path) for path, row in self.rows.items() if row in selected), None) if len(selected) == 1 else None
+        if source is None:
+            path, _ = QFileDialog.getOpenFileName(self, "Beschädigte MKV untersuchen", "", "Matroska (*.mkv *.MKV)")
+            if not path:
+                return
+            source = Path(path)
+        directory = self.output_dir.text().strip()
+        self.recovery_options = Options(Path(directory) if directory else None,
+                                        (384, 448, 640)[self.bitrate.currentIndex()],
+                                        self.downmix.isChecked(), True)
+        self.pending_repair = None
+        self.begin(RepairWorker(source, self.recovery_options, parent=self))
+
+    def repair_analyzed(self, plan):
+        self.pending_repair = plan
+
+    def confirm_repair(self, plan):
+        summary = plan.summary()
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Warning)
+        message.setWindowTitle("Rettung mit möglichen Datenverlusten")
+        message.setText(f"{plan.media.path.name}: {len(plan.damage)} Bereiche können nicht übernommen werden "
+                        f"({summary['excluded_bytes'] / 1024**2:.1f} MiB).")
+        message.setInformativeText("Nur vorhandene, lesbare Daten können übernommen werden. "
+            "Bildaussetzer, Stille und fehlende Inhalte sind möglich. Die Zeitachse bleibt erhalten. "
+            "Die Ausgabe wird ausdrücklich als gerettete Kopie mit Verlustbericht gekennzeichnet. "
+            "Soll die Rettung mit anschließender AC3-Konvertierung ausgeführt werden?")
+        def clock(seconds):
+            if seconds is None:
+                return "unbekannt"
+            value = max(0, int(seconds))
+            return f"{value // 3600:02d}:{value // 60 % 60:02d}:{value % 60:02d}"
+        positions = [f"• {clock(d.before_seconds)} bis {clock(d.after_seconds)}" for d in plan.damage[:20]]
+        if len(plan.damage) > 20:
+            positions.append(f"… und {len(plan.damage) - 20} weitere Stellen im Verlustbericht")
+        message.setDetailedText("Umgebungen der Schadstellen zur Nachkontrolle (ungefähre Zeitmarken):\n" +
+                                ("\n".join(positions) or "Keine strukturellen Schäden gefunden; Audiodecodierfehler bleiben möglich."))
+        message.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        message.button(QMessageBox.StandardButton.Yes).setText("Rettung und AC3-Konvertierung starten")
+        message.button(QMessageBox.StandardButton.Cancel).setText("Abbrechen")
+        message.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if message.exec() == QMessageBox.StandardButton.Yes:
+            self.begin(RepairWorker(plan.media.path, self.recovery_options, plan=plan, parent=self))
+        else:
+            self.set_state(str(plan.media.path), "Rettungsanalyse beendet · keine Ausgabe")
+
     def progress_changed(self, value, phase):
         self.progress_bar.setValue(round(value * 1000))
         self.phase.setText(phase)
@@ -322,6 +418,9 @@ class Window(QMainWindow):
             item.setToolTip(str(result.output))
         status = "Übersprungen · kein DTS" if result.skipped else (
             "Fertig · Warnungen beachten" if result.warnings else "Fertig · geprüft")
+        if getattr(result, "recovered", False):
+            status = "Gerettet · mögliche Bild-/Tonlücken"
+            self.logs.appendPlainText(f"Verlustbericht: {result.report_path}")
         self.set_state(path, status)
         for check in result.checks:
             self.logs.appendPlainText("✓ " + check)
@@ -339,6 +438,9 @@ class Window(QMainWindow):
         self.cancel_button.setEnabled(False)
         self.start_button.setEnabled(any(m.dts_tracks and p not in self.outputs for p, m in self.media.items()))
         self.phase.setText("Vorgang beendet. Status und Protokoll enthalten die Ergebnisse.")
+        if self.pending_repair is not None:
+            plan, self.pending_repair = self.pending_repair, None
+            self.confirm_repair(plan)
 
     def cancel_job(self):
         if self.worker:

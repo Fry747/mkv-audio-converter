@@ -9,6 +9,7 @@ import signal
 import sys
 import threading
 
+from .repair import analyze, recover
 from . import __version__
 from .core import Cancelled, Options, Runner, check_tools, convert, discover, inspect
 
@@ -25,7 +26,18 @@ def main(argv=None):
     parser.add_argument("--quick", action="store_true", help="Ohne Paketdatenvergleich kopierter Spuren")
     parser.add_argument("--no-recursive", action="store_true")
     parser.add_argument("--report", type=Path, help="JSON-Prüfbericht (darf noch nicht existieren)")
+    recovery = parser.add_mutually_exclusive_group()
+    recovery.add_argument("--analyze-repair", action="store_true", help="Eine MKV nur auf Rettungsmöglichkeiten untersuchen")
+    recovery.add_argument("--recover", action="store_true", help="Gerettete Kopie mit AC3 erzeugen; mögliche Datenverluste")
+    parser.add_argument("--accept-loss", action="store_true", help="Mögliche Bild-/Tonverluste im Rettungsmodus ausdrücklich akzeptieren")
     args = parser.parse_args(argv)
+    if args.recover and not args.accept_loss:
+        parser.error("--recover benötigt --accept-loss; Bild-/Tonverluste sind möglich.")
+    if args.accept_loss and not args.recover:
+        parser.error("--accept-loss ist nur zusammen mit --recover zulässig.")
+    if (args.recover or args.analyze_repair) and (len(args.paths) != 1 or not args.paths[0].is_file()):
+        parser.error("Der Rettungsmodus benötigt genau eine MKV-Datei.")
+    args.cli = args.cli or args.recover or args.analyze_repair
     if not args.check and not args.cli:
         try:
             from .gui import launch
@@ -40,6 +52,7 @@ def main(argv=None):
     report = {"application": f"MKV Audio Converter {__version__}",
               "started_utc": datetime.now(timezone.utc).isoformat(), "files": []}
     failed = False
+    salvaged = False
     try:
         report["tools"] = check_tools(runner)
         if args.check:
@@ -57,7 +70,18 @@ def main(argv=None):
         for path in paths:
             runner.check_cancel()
             try:
-                result = convert(inspect(path, runner), options, runner)
+                media = inspect(path, runner)
+                if args.recover or args.analyze_repair:
+                    plan = analyze(media, runner)
+                    report["analysis"] = plan.summary()
+                    if args.analyze_repair:
+                        print(json.dumps(plan.summary(), default=str, ensure_ascii=False, indent=2))
+                        continue
+                    result = recover(plan, options, runner, accept_loss=args.accept_loss)
+                    salvaged = True
+                    print(f"GERETTET MIT MÖGLICHEN VERLUSTEN. Bericht: {result.report_path}")
+                else:
+                    result = convert(media, options, runner)
                 report["files"].append(asdict(result))
                 print(f"{path}: " + ("kein DTS; übersprungen" if result.skipped else str(result.output)))
             except Cancelled:
@@ -83,7 +107,7 @@ def main(argv=None):
             except OSError as e:
                 failed = True
                 print(f"Prüfbericht konnte nicht gespeichert werden: {e}", file=sys.stderr)
-    return 1 if failed else 0
+    return 1 if failed else (3 if salvaged else 0)
 
 
 if __name__ == "__main__":

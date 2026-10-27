@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 try:
     from PySide6.QtCore import QSettings
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QMessageBox
     from mkv_audio_converter.gui import Window, Worker
     HAVE_QT = True
 except ImportError:
@@ -78,6 +78,29 @@ class GuiTests(unittest.TestCase):
             worker.run()
         self.assertEqual(states[-1], 'Fehler: beschädigte Quelldatei')
         self.assertIn('Resyncing at 1234', reports[0]['files'][0]['error'])
+
+    def test_recovery_confirmation_cancel_does_not_start_worker(self):
+        window = Window()
+        window.recovery_options = Options()
+        plan = SimpleNamespace(media=SimpleNamespace(path=Path('/source.mkv')), clusters=[1], damage=[SimpleNamespace(before_seconds=0, after_seconds=2)],
+                               summary=lambda: {'excluded_bytes': 1024, 'completeness': 'NOT_CONFIRMED'})
+        with patch.object(QMessageBox, 'exec', return_value=QMessageBox.StandardButton.Cancel), \
+             patch.object(window, 'begin') as begin:
+            window.confirm_repair(plan)
+            begin.assert_not_called()
+        self.assertIn('keine Ausgabe', window.table.item(0, 2).text())
+        window.close()
+
+    def test_recovery_confirmation_yes_starts_explicit_recovery(self):
+        window = Window()
+        window.recovery_options = Options()
+        plan = SimpleNamespace(media=SimpleNamespace(path=Path('/source.mkv')), clusters=[1], damage=[SimpleNamespace(before_seconds=0, after_seconds=2)],
+                               summary=lambda: {'excluded_bytes': 1024, 'completeness': 'NOT_CONFIRMED'})
+        with patch.object(QMessageBox, 'exec', return_value=QMessageBox.StandardButton.Yes), \
+             patch.object(window, 'begin') as begin:
+            window.confirm_repair(plan)
+            self.assertIs(begin.call_args.args[0].plan, plan)
+        window.close()
 
     @unittest.skipUnless(all(shutil.which(t) for t in TOOLS), 'FFmpeg/MKVToolNix fehlen')
     def test_scan_convert_report_and_rescan(self):

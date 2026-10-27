@@ -13,3 +13,6 @@ dist/
 *.ac3
 /gui.log
 /terminal.log
+
+# Generated salvage reports (may include private media paths)
+*.recovery.json

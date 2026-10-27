@@ -1,0 +1,82 @@
+{
+  "source": "TEST_MKV_02.mkv",
+  "result": "SALVAGED_WITH_POSSIBLE_LOSS",
+  "elapsed_seconds": 871.19,
+  "accepted_clusters": 14520,
+  "excluded_regions": 7,
+  "excluded_bytes": 480226340,
+  "crc_checked_clusters": 0,
+  "source_signature_unchanged": true,
+  "checks_reference": "validated_cluster_candidate_not_complete_original",
+  "decoder_diagnostic_counts": {},
+  "video_fully_decoded": false,
+  "checks": [
+    "Spurreihenfolge, Codecs, UIDs, Sprache, Titel und Flags geprüft",
+    "Kapitel, beschreibende Tags, Filmtitel und Anhang-Metadaten geprüft",
+    "Verfügbare Startzeitstempel geprüft (Toleranz 2 ms)",
+    "Alle Audio-/Video-Paketzeitstempel gelesen; AC3-Start und Ende geprüft",
+    "Kopierte Spuren: SHA-256 der Pakete und alle PTS geprüft",
+    "Anhänge: 2 Inhalte mit SHA-256 geprüft",
+    "Alle erzeugten AC3-Spuren vollständig fehlerfrei decodiert"
+  ],
+  "format": {
+    "duration_seconds": 15793.12,
+    "video": "H.264, copied",
+    "audio": [
+      "AC3 5.1 / 48 kHz",
+      "AC3 5.1 / 48 kHz"
+    ],
+    "subtitles": "ASS"
+  },
+  "damage": [
+    {
+      "start_byte": 8142499884,
+      "end_byte": 8145553163,
+      "before_seconds": 6635.796,
+      "after_seconds": 6639.049,
+      "reason": "unbekanntes Cluster-Unterelements 0x95"
+    },
+    {
+      "start_byte": 8158805743,
+      "end_byte": 8163347570,
+      "before_seconds": 6646.807,
+      "after_seconds": 6651.232,
+      "reason": "Element reicht über seine Grenze hinaus"
+    },
+    {
+      "start_byte": 8184460336,
+      "end_byte": 8187514522,
+      "before_seconds": 6665.2,
+      "after_seconds": 6667.661,
+      "reason": "unbekanntes Cluster-Unterelements 0x338f63"
+    },
+    {
+      "start_byte": 9606653109,
+      "end_byte": 9631707538,
+      "before_seconds": 7590.917,
+      "after_seconds": 7602.428,
+      "reason": "unbekanntes Cluster-Unterelements 0xcb"
+    },
+    {
+      "start_byte": 9641828238,
+      "end_byte": 9927568719,
+      "before_seconds": 7606.724,
+      "after_seconds": 7811.053,
+      "reason": "Element reicht über seine Grenze hinaus"
+    },
+    {
+      "start_byte": 9949560312,
+      "end_byte": 9952563972,
+      "before_seconds": 7827.829,
+      "after_seconds": 7829.446,
+      "reason": "unbekanntes Cluster-Unterelements 0xc1"
+    },
+    {
+      "start_byte": 9955672187,
+      "end_byte": 10111450665,
+      "before_seconds": 7830.28,
+      "after_seconds": 7935.302000000001,
+      "reason": "unbekanntes Cluster-Unterelements 0xa2"
+    }
+  ]
+}

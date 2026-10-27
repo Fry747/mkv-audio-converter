@@ -108,6 +108,7 @@ class Options:
     bitrate: int = 448
     downmix: bool = True
     deep_verify: bool = True
+    audio_recovery: bool = False  # enabled only by the explicit salvage workflow
 
     def __post_init__(self):
         if self.bitrate not in (384, 448, 640):
@@ -158,6 +159,7 @@ class Runner:
         self.cancel = cancel if cancel is not None else threading.Event()
         self.log = log
         self.warnings: list[str] = []
+        self.diagnostics: dict[str, int] = {}
 
     def check_cancel(self):
         if self.cancel.is_set():
@@ -192,6 +194,14 @@ class Runner:
         def emit(raw: bytes, stdout: bool):
             nonlocal capture_size
             line = raw.decode("utf-8", errors="replace")
+            if not stdout:
+                for label, pattern in (("block_decode_failed", "Failed to decode"),
+                                       ("unsupported_deficit_samples", "Deficit samples"),
+                                       ("decoder_packet_rejected", "Error submitting packet"),
+                                       ("invalid_data", "Invalid data found")):
+                    if pattern in line:
+                        self.diagnostics[label] = self.diagnostics.get(label, 0) + 1
+                        break
             is_warning = line.startswith(("#GUI#warning ", "Warning:"))
             if is_warning:
                 message = line.removeprefix("#GUI#warning ")
@@ -420,7 +430,8 @@ def remap_chapters(raw: str, source: Media, target: Media) -> str:
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode")
 
 
-def restore_metadata(media: Media, output: Path, work: Path, runner: Runner) -> tuple[str, str]:
+def restore_metadata(media: Media, output: Path, work: Path, runner: Runner,
+                     changed_uids: set[int] | None = None) -> tuple[str, str]:
     """Restore UIDs before importing original XML references. This also handles
     mkvmerge's automatic UID regeneration for MakeMKV sources."""
     args: list[str | Path] = ["mkvpropedit", output, "--normalize-language-ietf", "off"]
@@ -441,7 +452,8 @@ def restore_metadata(media: Media, output: Path, work: Path, runner: Runner) -> 
                 args += ["--set", f"{prop}={int(p.get(key, default))}"]
     runner.run(args)
     chapters = remap_chapters(extract_xml(runner, media.path, "chapters"), media, inspect(output, runner))
-    tags = sanitize_tags(extract_xml(runner, media.path, "tags"), {t.uid for t in media.dts_tracks})
+    tags = sanitize_tags(extract_xml(runner, media.path, "tags"),
+                         changed_uids if changed_uids is not None else {t.uid for t in media.dts_tracks})
     chapters_file, tags_file = work / "chapters.xml", work / "tags.xml"
     chapters_file.write_text(chapters, encoding="utf-8")
     tags_file.write_text(tags, encoding="utf-8")
@@ -515,7 +527,8 @@ class PacketStats:
 
 def scan_packets(media: Media, runner: Runner, work: Path, *, write: bool,
                  reference: dict[int, PacketStats] | None = None,
-                 deep: bool = True, progress: Callable[[float], None] = lambda _: None) -> dict[int, PacketStats]:
+                 deep: bool = True, progress: Callable[[float], None] = lambda _: None,
+                 tolerate_errors: bool = False) -> dict[int, PacketStats]:
     mapping = stream_map(media, runner)
     stats = {t.id: PacketStats() for t in media.tracks}
     tracks = {t.id: t for t in media.tracks}
@@ -565,7 +578,7 @@ def scan_packets(media: Media, runner: Runner, work: Path, *, write: bool,
         if deep:
             args += ["-show_data_hash", "sha256"]
         args.append(media.path)
-        runner.run(args, on_line=line, stderr_error=True)
+        runner.run(args, on_line=line, stderr_error=not tolerate_errors)
         if not write:
             for f in files.values():
                 if f.readline():
@@ -580,8 +593,9 @@ def scan_packets(media: Media, runner: Runner, work: Path, *, write: bool,
 
 
 def packet_check(source: Media, target: Media, runner: Runner, work: Path, deep: bool,
-                 progress: Callable[[float], None]) -> list[str]:
-    before = scan_packets(source, runner, work, write=True, deep=deep, progress=lambda p: progress(p * .5))
+                 progress: Callable[[float], None], *, tolerate_source_errors: bool = False) -> list[str]:
+    before = scan_packets(source, runner, work, write=True, deep=deep, progress=lambda p: progress(p * .5),
+                          tolerate_errors=tolerate_source_errors)
     after = scan_packets(target, runner, work, write=False, reference=before, deep=deep,
                          progress=lambda p: progress(.5 + p * .5))
     for old, new in zip(source.tracks, target.tracks):
@@ -680,8 +694,12 @@ def convert(media: Media, options: Options, runner: Runner,
             progress(base, label + " → AC3")
             # Copy timestamps (no start_at_zero) and keep CodecDelay in MKA.
             # aresample fills timestamp gaps without continuous clock stretching.
-            args: list[str | Path] = ["ffmpeg", "-hide_banner", "-nostdin", "-v", "warning", "-n", "-xerror",
-                                     "-copyts", "-err_detect", "explode", "-i", isolated,
+            args: list[str | Path] = ["ffmpeg", "-hide_banner", "-nostdin", "-v", "warning", "-n"]
+            if not options.audio_recovery:
+                args.append("-xerror")
+            else:
+                runner.log("Rettungsmodus: unlesbare Audiopakete dürfen ausgelassen werden; Verlustbericht beachten.")
+            args += ["-copyts", "-err_detect", "ignore_err" if options.audio_recovery else "explode", "-i", isolated,
                                      "-map", f"0:a:{pos}", "-vn", "-sn", "-dn",
                                      "-map_metadata", "-1", "-map_chapters", "-1",
                                      "-af", "aresample=async=1", "-c:a", "ac3", "-b:a", f"{options.bitrate}k",
@@ -709,11 +727,13 @@ def convert(media: Media, options: Options, runner: Runner,
                 progress(.65 + .15 * int(match[1]) / 100, "MKV neu verpacken")
         runner.run(remux_command(media, replacements, output), on_line=mux_progress, reject_resync=True)
         progress(.80, "Metadaten wiederherstellen und prüfen")
-        chapters, tags = restore_metadata(media, output, work, runner)
+        chapters, tags = restore_metadata(media, output, work, runner,
+                                          {t.uid for t in media.tracks} if options.audio_recovery else None)
         target = inspect(output, runner)
         checks = metadata_check(media, target, chapters, tags, runner)
         checks += packet_check(media, target, runner, work, options.deep_verify,
-                               lambda p: progress(.82 + .17 * p, "Ergebnis prüfen"))
+                               lambda p: progress(.82 + .17 * p, "Ergebnis prüfen"),
+                               tolerate_source_errors=options.audio_recovery)
         if options.deep_verify:
             checks += attachment_check(media, target, runner, work)
         # Decode converted tracks completely. FFmpeg never decodes the video.
