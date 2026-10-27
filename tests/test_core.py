@@ -184,7 +184,13 @@ class CoreTests(unittest.TestCase):
             temp.write_bytes(b'converted')
             existing = root / 'film_ac3.mkv'
             existing.write_bytes(b'old')
-            (root / 'film_ac3_2.mkv').symlink_to(root / 'missing')
+            try:
+                (root / 'film_ac3_2.mkv').symlink_to(root / 'missing')
+            except OSError:
+                if os.name != 'nt':
+                    raise
+                # Unprivileged Windows accounts may lack symlink permission.
+                (root / 'film_ac3_2.mkv').write_bytes(b'occupied')
             final = publish(temp, root / 'film.mkv', root)
             self.assertEqual(final.name, 'film_ac3_3.mkv')
             self.assertEqual(existing.read_bytes(), b'old')

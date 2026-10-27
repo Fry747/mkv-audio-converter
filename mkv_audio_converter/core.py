@@ -1,8 +1,8 @@
 """Qt-independent conversion engine. All external commands run without a shell.
 
 Only files in a private temporary directory are ever modified. Publication uses
-an atomic, exclusive hard link on the destination filesystem; existing names
-are never overwritten, including when another application creates them mid-job.
+exclusive publication on the destination filesystem (Windows no-replace
+rename, POSIX hard link); existing names are never overwritten.
 """
 from __future__ import annotations
 
@@ -24,6 +24,9 @@ import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable
+
+from . import runtime
+from .processes import ThreadedPipes, spawn
 
 
 class ConversionError(RuntimeError):
@@ -49,7 +52,7 @@ class Progress:
         self.callback(self.value, phase)
 
 
-TOOLS = ("mkvmerge", "mkvextract", "mkvpropedit", "ffmpeg", "ffprobe")
+TOOLS = runtime.TOOLS
 FLAG_OPTIONS = {
     "default_track": ("--default-track-flag", "flag-default", True),
     "forced_track": ("--forced-display-flag", "flag-forced", False),
@@ -155,11 +158,20 @@ class Runner:
     """Drain output incrementally, bound memory, and honour cancellation even
     while a child is silent. A process group also covers child processes."""
     def __init__(self, cancel: threading.Event | None = None,
-                 log: Callable[[str], None] = lambda _: None):
+                 log: Callable[[str], None] = lambda _: None, *,
+                 tool_paths: dict[str, Path] | None = None, threaded_io: bool | None = None):
+        self.tool_paths = dict(tool_paths or {})
+        self.threaded_io = runtime.windows() if threaded_io is None else threaded_io
         self.cancel = cancel if cancel is not None else threading.Event()
         self.log = log
         self.warnings: list[str] = []
         self.diagnostics: dict[str, int] = {}
+
+    def find_tool(self, name):
+        if self.tool_paths:
+            path = self.tool_paths.get(name)
+            return str(path) if path and Path(path).is_file() else None
+        return runtime.resolve_tool(name)
 
     def check_cancel(self):
         if self.cancel.is_set():
@@ -171,9 +183,20 @@ class Runner:
             reject_resync: bool = False) -> str:
         self.check_cancel()
         command = [str(x) for x in args]
-        self.log(f"[{time.strftime('%H:%M:%S')}] $ " + shlex.join(command))
+        tool = command[0]
+        if tool in TOOLS and (runtime.windows() or self.tool_paths):
+            resolved = self.find_tool(tool)
+            if not resolved:
+                raise ConversionError(f"Werkzeug fehlt: {tool}. Windows-Werkzeuge über das Werkzeugmenü einrichten.")
+            command[0] = resolved
+        if runtime.windows() and Path(command[0]).stem.casefold().startswith(('mkvmerge', 'mkvextract', 'mkvpropedit')):
+            command[1:1] = ['--ui-language', 'en_US', '--output-charset', 'UTF-8']
+        rendered = subprocess.list2cmdline(command) if runtime.windows() else shlex.join(command)
+        self.log(f"[{time.strftime('%H:%M:%S')}] $ " + rendered)
         env = os.environ.copy()
         env["LC_ALL"] = "C.UTF-8"
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
         for name in list(env):
             if name.startswith(("MKVMERGE_", "MKVTOOLNIX_", "MTX_")):
                 env.pop(name)
@@ -184,9 +207,7 @@ class Runner:
         command_warnings: list[str] = []
         start = time.monotonic()
         try:
-            proc = subprocess.Popen(command, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    start_new_session=True, env=env)
+            proc, job = spawn(command, env)
         except OSError as e:
             raise ConversionError(f"{command[0]} konnte nicht gestartet werden: {e}") from e
         buffers = {proc.stdout: b"", proc.stderr: b""}
@@ -228,33 +249,55 @@ class Runner:
                 if not is_warning and (not stdout or (not capture and on_line is None)):
                     self.log(line)
 
+        def check_running():
+            self.check_cancel()
+            if timeout is not None and time.monotonic() - start > timeout:
+                raise ConversionError(f"Zeitlimit für {command[0]} überschritten.")
+
+        def consume(pipe, block):
+            if not block:
+                if buffers[pipe]:
+                    emit(buffers[pipe], pipe is proc.stdout)
+                buffers.pop(pipe)
+                return
+            parts = re.split(b"[\r\n]", buffers[pipe] + block)
+            buffers[pipe] = parts.pop()
+            if len(buffers[pipe]) > 8 * 1024 * 1024:
+                raise ConversionError("Ungültig lange Werkzeugausgabe.")
+            for raw in parts:
+                emit(raw, pipe is proc.stdout)
+
+        readers = None
         try:
-            with selectors.DefaultSelector() as sel:
-                for pipe in buffers:
-                    sel.register(pipe, selectors.EVENT_READ)
-                while sel.get_map():
-                    self.check_cancel()
-                    if timeout is not None and time.monotonic() - start > timeout:
-                        raise ConversionError(f"Zeitlimit für {command[0]} überschritten.")
-                    for key, _ in sel.select(0.15):
-                        pipe = key.fileobj
-                        block = os.read(pipe.fileno(), 65536)
-                        if not block:
-                            if buffers[pipe]:
-                                emit(buffers[pipe], pipe is proc.stdout)
-                            sel.unregister(pipe)
-                            continue
-                        parts = re.split(b"[\r\n]", buffers[pipe] + block)
-                        buffers[pipe] = parts.pop()
-                        if len(buffers[pipe]) > 8 * 1024 * 1024:
-                            raise ConversionError("Ungültig lange Werkzeugausgabe.")
-                        for raw in parts:
-                            emit(raw, pipe is proc.stdout)
-            code = proc.wait()
+            if self.threaded_io:
+                readers = ThreadedPipes(list(buffers))
+                for pipe, block in readers.blocks(check_running):
+                    consume(pipe, block)
+            else:
+                with selectors.DefaultSelector() as sel:
+                    for pipe in buffers:
+                        sel.register(pipe, selectors.EVENT_READ)
+                    while sel.get_map():
+                        check_running()
+                        for key, _ in sel.select(0.15):
+                            pipe = key.fileobj
+                            block = os.read(pipe.fileno(), 65536)
+                            consume(pipe, block)
+                            if not block:
+                                sel.unregister(pipe)
+            # A child may close stdout/stderr before exiting. Keep timeout and
+            # cancellation effective after both pipes have reached EOF too.
+            while proc.poll() is None:
+                check_running()
+                try:
+                    proc.wait(timeout=.15)
+                except subprocess.TimeoutExpired:
+                    pass
+            code = proc.returncode
             self.check_cancel()
             if stderr_error and stderr_lines:
                 raise ConversionError(f"{Path(command[0]).name}: Fehlermeldungen:\n" + "\n".join(stderr_lines))
-            is_mkv = Path(command[0]).name.startswith(("mkvmerge", "mkvextract", "mkvpropedit"))
+            is_mkv = Path(command[0]).stem.casefold().startswith(("mkvmerge", "mkvextract", "mkvpropedit"))
             if code == 1 and is_mkv:
                 if not command_warnings:
                     warning = f"{Path(command[0]).name}: Warnung (Exit 1): " + "\n".join(tail)
@@ -268,7 +311,10 @@ class Runner:
                      f"in {time.monotonic() - start:.1f} s")
             return "".join(chunks)
         finally:
-            if proc.poll() is None:
+            if job is not None:
+                job.close()  # also terminates descendants holding inherited pipes
+                proc.wait(timeout=5)
+            elif proc.poll() is None:
                 try:
                     os.killpg(proc.pid, signal.SIGTERM)
                     proc.wait(timeout=2)
@@ -277,11 +323,13 @@ class Runner:
                     proc.wait()
                 except ProcessLookupError:
                     proc.wait()
+            if readers is not None:
+                readers.close()
             proc.stdout.close()
             proc.stderr.close()
 
     def json(self, args: list[str | Path]) -> dict:
-        raw = self.run(args, capture=True, stderr_error=Path(str(args[0])).name == "ffprobe")
+        raw = self.run(args, capture=True, stderr_error=Path(str(args[0])).stem.casefold() == "ffprobe")
         try:
             return json.loads(raw)
         except (ValueError, TypeError) as e:
@@ -289,11 +337,20 @@ class Runner:
 
 
 def check_tools(runner: Runner) -> dict[str, str]:
-    missing = [tool for tool in TOOLS if not shutil.which(tool)]
+    missing = [tool for tool in TOOLS if not runner.find_tool(tool)]
     if missing:
         raise ConversionError("Fehlende Programme: " + ", ".join(missing) + ". Siehe README.md.")
     versions = {tool: runner.run([tool, "-version" if tool.startswith("ff") else "--version"],
                                  capture=True, timeout=15).splitlines()[0] for tool in TOOLS}
+    if runtime.windows():
+        for tool, version in versions.items():
+            pattern = r"\bversion\s+n?(\d+)\." if tool.startswith("ff") else r"\bv(\d+)\."
+            found = re.search(pattern, version, re.I)
+            minimum = 8 if tool.startswith("ff") else 102
+            if not found or int(found[1]) < minimum:
+                raise ConversionError(f"Nicht unterstützte Windows-Werkzeugversion: {version}. "
+                    "Benötigt werden FFmpeg/FFprobe ab 8 und MKVToolNix ab 102. "
+                    "Bitte über Werkzeuge → Windows-Werkzeuge einrichten aktualisieren.")
     enc = runner.run(["ffmpeg", "-hide_banner", "-encoders"], capture=True, timeout=15)
     dec = runner.run(["ffmpeg", "-hide_banner", "-decoders"], capture=True, timeout=15)
     if not re.search(r"^\s*A\S*\s+ac3\s", enc, re.M):
@@ -681,20 +738,28 @@ def attachment_check(source: Media, target: Media, runner: Runner, work: Path) -
     return [f"Anhänge: {len(old)} Inhalte mit SHA-256 geprüft"]
 
 
+def publish_exclusive(temp: Path, target: Path):
+    """Same-volume publication without replacing an existing name on either OS."""
+    if os.name == 'nt':
+        os.rename(temp, target)
+    else:
+        os.link(temp, target)
+
+
 def publish(temp: Path, source: Path, destination: Path) -> Path:
     """No TOCTOU overwrite: link fails atomically if a candidate already exists."""
     for index in range(10000):
         suffix = "" if index == 0 else f"_{index + 1}"
         target = destination / f"{source.stem}_ac3{suffix}.mkv"
         try:
-            os.link(temp, target)
+            publish_exclusive(temp, target)
             return target
         except FileExistsError:
             continue
         except OSError as e:
             raise ConversionError("Fertige Datei konnte nicht sicher veröffentlicht werden. "
-                                  "Der Zielordner benötigt ein Dateisystem mit Hardlinks "
-                                  f"(z. B. Btrfs/ext4). Details: {e}") from e
+                                  "Das Ziel unterstützt die sichere Veröffentlichung nicht "
+                                  f"(Linux: Btrfs/ext4; Windows: lokales NTFS/exFAT). Details: {e}") from e
     raise ConversionError("Zu viele gleichnamige Ausgabedateien.")
 
 

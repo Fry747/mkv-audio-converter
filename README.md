@@ -1,18 +1,24 @@
 # MKV Audio Converter
 
-Version **1.2.1** · Listeneinträge per Rechtsklick, Entf oder „Auswahl entfernen“
-entfernen. Beschädigte Dateien direkt aus der Warteschlange auswählen und
-retten; konvertierte Tonspuren erhalten passende AC3-Spurtitel.
-Optionaler Rettungsmodus für beschädigte MKVs mit Verlustbericht und
-ausdrücklicher Freigabe. Bedienung und Grenzen:
-[RETTUNGSMODUS.md](RETTUNGSMODUS.md). Die Fehleranalyse von 1.0.1 bleibt unter
-[FEHLERANALYSE.md](FEHLERANALYSE.md) erhalten.
+Version **1.3.0** · Fedora KDE und Windows x64. Windows-Ersteinrichtung mit
+geprüften Werkzeugdownloads; Installer- und Portable-Build sind vorbereitet.
+Windows-Bedienung und Build: [WINDOWS.md](WINDOWS.md).
+Rettungsmodus: [RETTUNGSMODUS.md](RETTUNGSMODUS.md).
 
-Eine native PySide6-Anwendung für Fedora KDE: MKV-Dateien oder ganze Ordner
+Eine native PySide6-Anwendung für Fedora KDE und Windows: MKV-Dateien oder ganze Ordner
 auswählen, alle DTS-Tonspuren nach AC3 umwandeln und die fertigen Dateien separat
 speichern. **Originaldateien werden nicht verändert.**
 
 ![Oberfläche nach einem erfolgreich geprüften Testlauf](docs/Oberflaeche.png)
+
+## Schnellstart auf Windows
+
+Installer verwenden oder die portable ZIP vollständig entpacken und
+`MKVAudioConverter.exe` starten. Python/Qt sind im gebauten Paket enthalten.
+Fehlende FFmpeg-/MKVToolNix-Werkzeuge richtet der Assistent nach ausdrücklichem
+Klick im Benutzerprofil ein. Dafür ist einmalig Internet erforderlich.
+Keine Administratorrechte und keine System-PATH-Änderung nötig. Offline können
+vorhandene Werkzeugordner gewählt werden. [Anleitung und aktueller Prüfstand](WINDOWS.md).
 
 ## Schnellstart auf Fedora KDE
 
@@ -267,12 +273,12 @@ geschätzte AC3-Größe und 256 MiB Reserve geprüft. Fehler wie ein volles Lauf
 werden abgefangen. Die Quelle wird vor und nach dem Auftrag auf Änderungen
 von Größe, Zeitstempel und Dateiidentität geprüft.
 
-Die endgültige Veröffentlichung nutzt einen exklusiven Hardlink und kann
-dadurch auch bei gleichzeitig angelegten Dateien nichts überschreiben.
-**Als Ziel ein lokales Btrfs-/ext4-Dateisystem verwenden.** exFAT/FAT und manche
-Netzlaufwerke unterstützen diese Funktion nicht; dort wird die Veröffentlichung
-mit einem klaren Fehler abgebrochen. Fertige Dateien können anschließend auf
-einen USB-Datenträger kopiert werden. Der Ausgabename erscheint erst nach allen
+Die endgültige Veröffentlichung ersetzt keine vorhandenen Namen, auch wenn
+sie während des Auftrags angelegt werden. **Unter Linux** nutzt sie exklusive
+Hardlinks; dafür ein lokales Btrfs-/ext4-Ziel verwenden. exFAT/FAT und manche
+Netzlaufwerke unterstützen diese Linux-Funktion nicht. **Unter Windows** nutzt
+sie natives Umbenennen ohne Überschreiben, sodass lokale NTFS-/exFAT-Ziele
+möglich sind. Fertige Dateien können auf USB-Datenträger kopiert werden. Der Ausgabename erscheint erst nach allen
 Prüfungen. Die Daten werden davor auf den Datenträger geschrieben (`fsync`).
 
 Bei normalem Fehler oder Abbruch wird aufgeräumt. Nach Stromausfall oder
@@ -315,6 +321,7 @@ Die Erweiterung 1.1.0 hat einen eigenen [Testbericht](TESTBERICHT-1.1.0.md).
 Prüfung der Spurtitelanpassung: [Testbericht 1.1.1](TESTBERICHT-1.1.1.md).
 Rettung aus der Warteschlange: [Testbericht 1.2.0](TESTBERICHT-1.2.0.md).
 Entfernen von Listeneinträgen: [Testbericht 1.2.1](TESTBERICHT-1.2.1.md).
+Windows-Unterstützung: [Testbericht 1.3.0](TESTBERICHT-1.3.0.md).
 
 ## Projektaufbau
 
@@ -323,9 +330,14 @@ mkv_audio_converter/
   core.py          Konvertierung, Metadaten, Prozesse, Sicherheit, Validierung
   gui.py           Native Qt-Oberfläche und Hintergrundverarbeitung
   repair.py        Cluster-Analyse, optionale Rettung und Verlustberichte
+  runtime.py       Sichere Windows-Werkzeugsuche und Konfiguration
+  processes.py     Pipe-Threads und Windows-Prozessbaumverwaltung
+  windows_tools.py Geprüfte Downloads und transaktionale Einrichtung
+  windows_setup.py Ersteinrichtungsassistent
   __main__.py      GUI-Start und optionale CLI
 tests/             Unit-, Medienintegrations- und GUI-Tests
-start.sh           Direkter Anwendungsstart
+start.sh/start.cmd Direkter Quellcode-Anwendungsstart
+packaging/windows/ Windows-EXEs, Installer und Paketierung
 install-desktop.sh Optionaler KDE-Menüeintrag
 requirements.txt   Python-Abhängigkeiten
 pyproject.toml     Installierbares Python-Projekt

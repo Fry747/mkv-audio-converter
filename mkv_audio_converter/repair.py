@@ -16,7 +16,7 @@ import struct
 import tempfile
 import zlib
 
-from .core import (ConversionError, Media, Options, Progress, Result, Runner,
+from .core import (publish_exclusive, ConversionError, Media, Options, Progress, Result, Runner,
                    convert, inspect, signature)
 
 CLUSTER = 0x1F43B675
@@ -334,10 +334,10 @@ def recover(plan: RepairPlan, options: Options, runner: Runner, *, accept_loss: 
         probe = work / 'hardlink-check'
         probe.write_bytes(b'')
         try:
-            os.link(probe, work / 'hardlink-target')
+            publish_exclusive(probe, work / 'publication-target')
         except OSError as error:
-            raise ConversionError('Der Rettungsmodus benötigt ein Ziel mit Hardlink-Unterstützung '
-                                  '(z. B. Btrfs/ext4).') from error
+            raise ConversionError('Das Ziel unterstützt keine sichere Veröffentlichung '
+                                  '(Linux: Btrfs/ext4; Windows: lokales NTFS/exFAT).') from error
         candidate = work / (plan.media.path.stem + '_recovered.mkv')
         write_candidate(plan, candidate, runner, lambda p, phase: progress(.2 * p, phase))
         media = inspect(candidate, runner)
@@ -367,17 +367,18 @@ def recover(plan: RepairPlan, options: Options, runner: Runner, *, accept_loss: 
             with temp_report.open('rb') as file:
                 os.fsync(file.fileno())
             linked = False
+            report_signature = signature(temp_report)
             try:
-                os.link(temp_report, sidecar)
+                publish_exclusive(temp_report, sidecar)
                 linked = True
-                os.link(result.output, final)
+                publish_exclusive(result.output, final)
                 break
             except FileExistsError:
-                if linked and sidecar.stat().st_ino == temp_report.stat().st_ino:
+                if linked and signature(sidecar) == report_signature:
                     sidecar.unlink()
                 continue
             except OSError as error:
-                if linked and sidecar.stat().st_ino == temp_report.stat().st_ino:
+                if linked and signature(sidecar) == report_signature:
                     sidecar.unlink()
                 raise ConversionError(f'Rettung konnte nicht sicher veröffentlicht werden: {error}') from error
         else:

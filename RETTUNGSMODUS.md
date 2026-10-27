@@ -159,8 +159,9 @@ zerstörte Codec-Header sind keine zugesicherten Rettungsfälle. Aus intakten
 Metadaten kann die Anwendung verlorene Mediennutzdaten nicht ableiten.
 
 Für Arbeitsdateien sollten ungefähr dreimal die Originalgröße plus 1 GiB
-frei sein. Das Ziel muss Hardlinks unterstützen (z. B. Btrfs/ext4); das wird vor
-dem langen Kopierlauf geprüft. Abbruch und Fehler entfernen die temporären
+frei sein. Unter Linux muss das Ziel Hardlinks unterstützen (z. B. Btrfs/ext4).
+Windows verwendet Umbenennen ohne Überschreiben auf lokalen NTFS-/exFAT-Zielen.
+Die sichere Veröffentlichung wird vor dem langen Kopierlauf geprüft. Abbruch und Fehler entfernen die temporären
 Kopien. Veröffentlichte Ausgabe und Bericht werden exklusiv unter neuen Namen
 angelegt. Nach Stromausfall können wie bisher versteckte Arbeitsordner bleiben.
 

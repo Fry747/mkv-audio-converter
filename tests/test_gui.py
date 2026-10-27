@@ -26,6 +26,10 @@ from mkv_audio_converter.core import (ConversionError, Media, Options, Result,
 from mkv_audio_converter.repair import RecoveryResult, analyze
 
 
+def native_path(value):
+    return str(Path(value))
+
+
 def media_for(path, dts=True, signature=(1, 2, 3, 4)):
     return Media(Path(path), {}, (Track(0, 'audio', 'DTS' if dts else 'AC3',
                  {'uid': 1, 'codec_id': 'A_DTS' if dts else 'A_AC3', 'audio_channels': 2}),), signature)
@@ -50,6 +54,15 @@ class GuiTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.temp.cleanup()
+
+    def setUp(self):
+        # Native QSettings on Windows uses the registry, so setPath alone is
+        # insufficient. Inject an explicit INI file for every GUI test.
+        settings = QSettings(str(self.root / 'isolated-settings.ini'), QSettings.Format.IniFormat)
+        settings.clear()
+        setting_patch = patch('mkv_audio_converter.gui.QSettings', return_value=settings)
+        setting_patch.start()
+        self.addCleanup(setting_patch.stop)
 
     def wait_for_idle(self, window, seconds=30):
         deadline = time.monotonic() + seconds
@@ -79,7 +92,7 @@ class GuiTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(window.start_button.isEnabled())
         self.assertFalse(window.cancel_button.isEnabled())
-        window.set_state('/test/a.mkv', 'Fehler: Test')
+        window.set_state(native_path('/test/a.mkv'), 'Fehler: Test')
         window.table.selectRow(0)
         window.remove_selected()
         self.assertEqual(window.table.rowCount(), 0)
@@ -94,7 +107,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(values, [.7, .7, .8])
 
     def test_source_damage_has_clear_status_and_detailed_report(self):
-        worker = Worker(media=[SimpleNamespace(path=Path('/source.mkv'))], options=Options())
+        worker = Worker(media=[SimpleNamespace(path=Path(native_path('/source.mkv')))], options=Options())
         states, reports, damaged = [], [], []
         worker.state.connect(lambda path, state: states.append(state))
         worker.report_ready.connect(reports.append)
@@ -105,12 +118,12 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(states[-1], 'Fehler: beschädigte Quelldatei')
         self.assertIn('Resyncing at 1234', reports[0]['files'][0]['error'])
         self.assertTrue(reports[0]['files'][0]['source_damage'])
-        self.assertEqual(damaged, [('/source.mkv', 'Resyncing at 1234')])
+        self.assertEqual(damaged, [(native_path('/source.mkv'), 'Resyncing at 1234')])
 
     def test_recovery_confirmation_cancel_does_not_start_worker(self):
         window = Window()
         window.recovery_options = Options()
-        plan = SimpleNamespace(media=SimpleNamespace(path=Path('/source.mkv')), clusters=[1], damage=[SimpleNamespace(before_seconds=0, after_seconds=2)],
+        plan = SimpleNamespace(media=SimpleNamespace(path=Path(native_path('/source.mkv'))), clusters=[1], damage=[SimpleNamespace(before_seconds=0, after_seconds=2)],
                                summary=lambda: {'excluded_bytes': 1024, 'completeness': 'NOT_CONFIRMED'})
         with patch.object(QMessageBox, 'exec', return_value=QMessageBox.StandardButton.Cancel), \
              patch.object(window, 'begin') as begin:
@@ -122,7 +135,7 @@ class GuiTests(unittest.TestCase):
     def test_recovery_confirmation_yes_starts_explicit_recovery(self):
         window = Window()
         window.recovery_options = Options()
-        plan = SimpleNamespace(media=SimpleNamespace(path=Path('/source.mkv')), clusters=[1], damage=[SimpleNamespace(before_seconds=0, after_seconds=2)],
+        plan = SimpleNamespace(media=SimpleNamespace(path=Path(native_path('/source.mkv'))), clusters=[1], damage=[SimpleNamespace(before_seconds=0, after_seconds=2)],
                                summary=lambda: {'excluded_bytes': 1024, 'completeness': 'NOT_CONFIRMED'})
         with patch.object(QMessageBox, 'exec', return_value=QMessageBox.StandardButton.Yes), \
              patch.object(window, 'begin') as begin:
@@ -165,7 +178,7 @@ class GuiTests(unittest.TestCase):
 
 
     def test_generic_conversion_error_does_not_mark_source_damaged(self):
-        worker = Worker(media=[media_for('/source.mkv')], options=Options())
+        worker = Worker(media=[media_for(native_path('/source.mkv'))], options=Options())
         reports, damaged = [], []
         worker.report_ready.connect(reports.append)
         worker.source_damaged.connect(lambda *args: damaged.append(args))
@@ -176,7 +189,7 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(reports[0]['files'][0]['source_damage'])
 
     def test_repair_selection_checks_individual_or_all_with_full_paths(self):
-        paths = ['/folder-a/Film.mkv', '/folder-b/Film.mkv']
+        paths = [native_path('/folder-a/Film.mkv'), native_path('/folder-b/Film.mkv')]
         dialog = RepairSelectionDialog([(p, 'Resyncing at 1234') for p in paths], [paths[1]])
         self.assertEqual(dialog.selected_paths(), [paths[1]])
         self.assertEqual(dialog.table.item(0, 1).text(), paths[0])
@@ -195,33 +208,33 @@ class GuiTests(unittest.TestCase):
     def test_repair_candidates_use_structured_damage_not_status_text(self):
         window = Window()
         self.assertFalse(window.repair_button.isEnabled())
-        for path in ('/damaged.mkv', '/healthy.mkv', '/space-error.mkv', '/done.mkv'):
+        for path in (native_path('/damaged.mkv'), native_path('/healthy.mkv'), native_path('/space-error.mkv'), native_path('/done.mkv')):
             window.found(media_for(path))
-        window.found(media_for('/no-dts.mkv', dts=False))
-        for path in ('/damaged.mkv', '/done.mkv', '/no-dts.mkv'):
+        window.found(media_for(native_path('/no-dts.mkv'), dts=False))
+        for path in (native_path('/damaged.mkv'), native_path('/done.mkv'), native_path('/no-dts.mkv')):
             window.mark_damaged(path, 'Resyncing')
-        window.outputs['/done.mkv'] = Path('/done_ac3.mkv')
-        window.set_state('/space-error.mkv', 'Fehler: beschädigte Quelldatei')
-        window.mark_damaged('/not-inspected.mkv', 'Resyncing')
+        window.outputs[native_path('/done.mkv')] = Path(native_path('/done_ac3.mkv'))
+        window.set_state(native_path('/space-error.mkv'), 'Fehler: beschädigte Quelldatei')
+        window.mark_damaged(native_path('/not-inspected.mkv'), 'Resyncing')
         window.refresh_actions()
-        self.assertEqual(window.recovery_candidates(), [('/damaged.mkv', 'Resyncing')])
+        self.assertEqual(window.recovery_candidates(), [(native_path('/damaged.mkv'), 'Resyncing')])
         self.assertTrue(window.repair_button.isEnabled())
         self.assertIn('(1)', window.repair_button.text())
         with patch.object(window, 'begin') as begin:
             window.start()
         self.assertEqual([m.path for m in begin.call_args.args[0].media],
-                         [Path('/healthy.mkv'), Path('/space-error.mkv')])
+                         [Path(native_path('/healthy.mkv')), Path(native_path('/space-error.mkv'))])
         window.close()
 
     def test_repair_selection_never_opens_file_dialog_and_honors_table_selection(self):
         window = Window()
-        for path in ('/a.mkv', '/b.mkv', '/healthy.mkv'):
+        for path in (native_path('/a.mkv'), native_path('/b.mkv'), native_path('/healthy.mkv')):
             window.found(media_for(path))
-        for path in ('/a.mkv', '/b.mkv'):
+        for path in (native_path('/a.mkv'), native_path('/b.mkv')):
             window.mark_damaged(path, 'Resyncing')
-        window.table.selectRow(window.rows['/b.mkv'])
+        window.table.selectRow(window.rows[native_path('/b.mkv')])
         def choose(dialog):
-            self.assertEqual(dialog.selected_paths(), ['/b.mkv'])
+            self.assertEqual(dialog.selected_paths(), [native_path('/b.mkv')])
             self.assertEqual(dialog.table.rowCount(), 2)
             return QDialog.DialogCode.Accepted
         with patch('mkv_audio_converter.gui.QFileDialog.getOpenFileName', side_effect=AssertionError('File dialog')), \
@@ -229,8 +242,8 @@ class GuiTests(unittest.TestCase):
              patch.object(window, 'begin') as begin:
             window.start_repair_analysis()
         worker = begin.call_args.args[0]
-        self.assertEqual(worker.sources, (Path('/b.mkv'),))
-        self.assertEqual(worker.expected_signatures, {'/b.mkv': (1, 2, 3, 4)})
+        self.assertEqual(worker.sources, (Path(native_path('/b.mkv')),))
+        self.assertEqual(worker.expected_signatures, {native_path('/b.mkv'): (1, 2, 3, 4)})
         window.close()
 
     def test_repair_selection_cancel_and_no_candidates_start_nothing(self):
@@ -240,8 +253,8 @@ class GuiTests(unittest.TestCase):
              patch.object(RepairSelectionDialog, 'exec', return_value=QDialog.DialogCode.Rejected) as choose:
             window.start_repair_analysis()
             choose.assert_not_called()
-            window.found(media_for('/damaged.mkv'))
-            window.mark_damaged('/damaged.mkv', 'Resyncing')
+            window.found(media_for(native_path('/damaged.mkv')))
+            window.mark_damaged(native_path('/damaged.mkv'), 'Resyncing')
             window.start_repair_analysis()
             begin.assert_not_called()
         self.assertEqual(len(window.recovery_candidates()), 1)
@@ -249,15 +262,15 @@ class GuiTests(unittest.TestCase):
 
     def test_repair_eligibility_cleared_on_removal_rescan_or_success(self):
         window = Window()
-        for path in ('/a.mkv', '/b.mkv', '/c.mkv'):
+        for path in (native_path('/a.mkv'), native_path('/b.mkv'), native_path('/c.mkv')):
             window.found(media_for(path))
             window.mark_damaged(path, 'Resyncing')
-        window.table.selectRow(window.rows['/a.mkv'])
+        window.table.selectRow(window.rows[native_path('/a.mkv')])
         window.remove_selected()
-        self.assertNotIn('/a.mkv', window.damage_errors)
-        window.completed(RecoveryResult(Path('/b.mkv'), Path('/b_recovered_ac3.mkv'),
-                                        report_path=Path('/b.recovery.json')))
-        self.assertEqual([p for p, _ in window.recovery_candidates()], ['/c.mkv'])
+        self.assertNotIn(native_path('/a.mkv'), window.damage_errors)
+        window.completed(RecoveryResult(Path(native_path('/b.mkv')), Path(native_path('/b_recovered_ac3.mkv')),
+                                        report_path=Path(native_path('/b.recovery.json'))))
+        self.assertEqual([p for p, _ in window.recovery_candidates()], [native_path('/c.mkv')])
         with patch.object(window, 'scan'):
             window.rescan()
         self.assertFalse(window.damage_errors)
@@ -266,7 +279,7 @@ class GuiTests(unittest.TestCase):
         window.close()
 
     def test_analysis_continues_after_file_error_and_emits_only_successful_plans(self):
-        media = [media_for('/bad.mkv'), media_for('/a.mkv'), media_for('/b.mkv')]
+        media = [media_for(native_path('/bad.mkv')), media_for(native_path('/a.mkv')), media_for(native_path('/b.mkv'))]
         plans = [plan_for(m) for m in media[1:]]
         worker = RepairWorker([m.path for m in media], Options())
         ready, reports, progress, fatal = [], [], [], []
@@ -291,8 +304,8 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(fatal)
 
     def test_analysis_rejects_replaced_source_or_missing_dts(self):
-        for m, reason in ((media_for('/changed.mkv', signature=(9, 9, 9, 9)), 'verändert'),
-                          (media_for('/changed.mkv', dts=False), 'Keine DTS')):
+        for m, reason in ((media_for(native_path('/changed.mkv'), signature=(9, 9, 9, 9)), 'verändert'),
+                          (media_for(native_path('/changed.mkv'), dts=False), 'Keine DTS')):
             with self.subTest(reason=reason):
                 worker = RepairWorker([m.path], Options(), expected_signatures={str(m.path): (1, 2, 3, 4)})
                 reports, ready = [], []
@@ -307,15 +320,15 @@ class GuiTests(unittest.TestCase):
                 self.assertIn(reason, reports[0]['files'][0]['error'])
 
     def test_recovery_batch_continues_after_failure_and_checks_plan_sources(self):
-        plans = [plan_for(media_for(p)) for p in ('/a.mkv', '/b.mkv')]
+        plans = [plan_for(media_for(p)) for p in (native_path('/a.mkv'), native_path('/b.mkv'))]
         with self.assertRaises(ValueError):
-            RepairWorker([Path('/b.mkv'), Path('/a.mkv')], Options(), plans=plans)
+            RepairWorker([Path(native_path('/b.mkv')), Path(native_path('/a.mkv'))], Options(), plans=plans)
         worker = RepairWorker([p.media.path for p in plans], Options(), plans=plans)
         reports, results, fatal = [], [], []
         worker.report_ready.connect(reports.append)
         worker.result.connect(results.append)
         worker.fatal.connect(fatal.append)
-        result = RecoveryResult(Path('/b.mkv'), Path('/b_recovered_ac3.mkv'))
+        result = RecoveryResult(Path(native_path('/b.mkv')), Path(native_path('/b_recovered_ac3.mkv')))
         with patch('mkv_audio_converter.gui.check_tools', return_value={}), \
              patch('mkv_audio_converter.gui.recover', side_effect=[ConversionError('Ausgabe voll'), result]) as recover:
             worker.run()
@@ -327,14 +340,14 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(fatal)
 
     def test_batch_cancellation_keeps_completed_recoveries_and_stops_remaining(self):
-        plans = [plan_for(media_for(p)) for p in ('/a.mkv', '/b.mkv', '/c.mkv')]
+        plans = [plan_for(media_for(p)) for p in (native_path('/a.mkv'), native_path('/b.mkv'), native_path('/c.mkv'))]
         worker = RepairWorker([p.media.path for p in plans], Options(), plans=plans)
         reports, results = [], []
         worker.report_ready.connect(reports.append)
         worker.result.connect(results.append)
         def recover(plan, *args, **kwargs):
             worker.cancel.set()
-            return RecoveryResult(plan.media.path, Path('/a_recovered_ac3.mkv'))
+            return RecoveryResult(plan.media.path, Path(native_path('/a_recovered_ac3.mkv')))
         with patch('mkv_audio_converter.gui.check_tools', return_value={}), \
              patch('mkv_audio_converter.gui.recover', side_effect=recover) as run:
             worker.run()
@@ -344,7 +357,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual([f.get('error') for f in reports[0]['files']], [None, 'Abgebrochen', 'Abgebrochen'])
 
     def test_analysis_cancellation_never_opens_confirmation(self):
-        media = [media_for('/a.mkv'), media_for('/b.mkv')]
+        media = [media_for(native_path('/a.mkv')), media_for(native_path('/b.mkv'))]
         worker = RepairWorker([m.path for m in media], Options())
         ready, reports, states = [], [], []
         worker.plans_ready.connect(ready.append)
@@ -370,19 +383,19 @@ class GuiTests(unittest.TestCase):
 
     def test_threaded_queue_damage_selection_analysis_and_recovery(self):
         window = Window()
-        paths = ['/folder-a/Film.mkv', '/folder-b/Film.mkv', '/healthy.mkv']
+        paths = [native_path('/folder-a/Film.mkv'), native_path('/folder-b/Film.mkv'), native_path('/healthy.mkv')]
         media = {p: media_for(p) for p in paths}
         for m in media.values():
             window.found(m)
         def convert(m, *args):
-            if str(m.path) != '/healthy.mkv':
+            if str(m.path) != native_path('/healthy.mkv'):
                 raise SourceDamageError('Resyncing at 1234')
-            return Result(m.path, Path('/healthy_ac3.mkv'))
+            return Result(m.path, Path(native_path('/healthy_ac3.mkv')))
         def recover(plan, *args, **kwargs):
             if str(plan.media.path) == paths[0]:
                 raise ConversionError('Nicht rettbar')
-            return RecoveryResult(plan.media.path, Path('/Film_recovered_ac3.mkv'),
-                                  report_path=Path('/Film_recovered_ac3.recovery.json'))
+            return RecoveryResult(plan.media.path, Path(native_path('/Film_recovered_ac3.mkv')),
+                                  report_path=Path(native_path('/Film_recovered_ac3.recovery.json')))
         with patch('mkv_audio_converter.gui.check_tools', return_value={}), \
              patch('mkv_audio_converter.gui.convert', side_effect=convert), \
              patch('mkv_audio_converter.gui.inspect', side_effect=lambda p, runner: media[str(p)]), \
@@ -410,17 +423,17 @@ class GuiTests(unittest.TestCase):
 
     def test_batch_confirmation_defaults_to_cancel_and_lists_analysis_failures(self):
         window = Window()
-        plans = [plan_for(media_for(p)) for p in ('/folder-a/Film.mkv', '/folder-b/Film.mkv')]
+        plans = [plan_for(media_for(p)) for p in (native_path('/folder-a/Film.mkv'), native_path('/folder-b/Film.mkv'))]
         for plan in plans:
             window.found(plan.media)
             window.mark_damaged(str(plan.media.path), 'Resyncing')
         window.recovery_options = Options()
-        window.recovery_analysis_report = {'files': [{'source': '/failed.mkv', 'error': 'Kopf fehlt'}]}
+        window.recovery_analysis_report = {'files': [{'source': native_path('/failed.mkv'), 'error': 'Kopf fehlt'}]}
         def cancel(message):
             self.assertEqual(message.defaultButton().text(), 'Abbrechen')
             self.assertIn('2 Datei(en)', message.text())
             self.assertIn('1 weitere', message.informativeText())
-            for path in ('/folder-a/Film.mkv', '/folder-b/Film.mkv', '/failed.mkv'):
+            for path in (native_path('/folder-a/Film.mkv'), native_path('/folder-b/Film.mkv'), native_path('/failed.mkv')):
                 self.assertIn(path, message.detailedText())
             return QMessageBox.StandardButton.Cancel
         with patch.object(QMessageBox, 'exec', new=cancel), patch.object(window, 'begin') as begin:
@@ -477,7 +490,7 @@ class GuiTests(unittest.TestCase):
 
     def test_context_menu_on_unselected_row_removes_only_clicked_entry(self):
         window = Window()
-        for path in ('/one/Film.mkv', '/two/Film.mkv'):
+        for path in (native_path('/one/Film.mkv'), native_path('/two/Film.mkv')):
             window.found(media_for(path))
         window.show()
         self.app.processEvents()
@@ -488,8 +501,8 @@ class GuiTests(unittest.TestCase):
             self.assertEqual(action.text(), 'Aus Liste entfernen')
             action.trigger()
         self.use_file_menu(window, 1, remove)
-        self.assertEqual(window.rows, {'/one/Film.mkv': 0})
-        self.assertEqual(list(window.media), ['/one/Film.mkv'])
+        self.assertEqual(window.rows, {native_path('/one/Film.mkv'): 0})
+        self.assertEqual(list(window.media), [native_path('/one/Film.mkv')])
         window.close()
 
     def test_context_multi_remove_cleans_state_without_deleting_files_or_reports(self):
@@ -535,15 +548,15 @@ class GuiTests(unittest.TestCase):
             window.close()
 
     def test_remove_is_locked_during_scan_conversion_analysis_and_recovery(self):
-        factories = [lambda w: Worker(paths=[Path('/a.mkv')], parent=w),
-                     lambda w: Worker(media=[media_for('/a.mkv')], options=Options(), parent=w),
-                     lambda w: RepairWorker([Path('/a.mkv')], Options(), parent=w),
-                     lambda w: RepairWorker([Path('/a.mkv')], Options(),
-                                             plans=[plan_for(media_for('/a.mkv'))], parent=w)]
+        factories = [lambda w: Worker(paths=[Path(native_path('/a.mkv'))], parent=w),
+                     lambda w: Worker(media=[media_for(native_path('/a.mkv'))], options=Options(), parent=w),
+                     lambda w: RepairWorker([Path(native_path('/a.mkv'))], Options(), parent=w),
+                     lambda w: RepairWorker([Path(native_path('/a.mkv'))], Options(),
+                                             plans=[plan_for(media_for(native_path('/a.mkv')))], parent=w)]
         for factory in factories:
             with self.subTest(factory=factory):
                 window = Window()
-                window.found(media_for('/a.mkv'))
+                window.found(media_for(native_path('/a.mkv')))
                 window.table.selectRow(0)
                 self.assertTrue(window.remove_button.isEnabled())
                 self.assertTrue(window.remove_action.isEnabled())
@@ -559,7 +572,7 @@ class GuiTests(unittest.TestCase):
                     self.assertFalse(menu.actions()[0].isEnabled())
                     self.assertIn('gesperrt', menu.actions()[1].text())
                 self.use_file_menu(window, 0, inspect_menu)
-                self.assertEqual(window.rows, {'/a.mkv': 0})
+                self.assertEqual(window.rows, {native_path('/a.mkv'): 0})
                 # Guard remains effective even if an outdated menu action was enabled.
                 window.remove_action.setEnabled(True)
                 window.remove_action.trigger()
@@ -575,7 +588,7 @@ class GuiTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(window.remove_button.isEnabled())
         self.assertFalse(window.remove_action.isEnabled())
-        window.found(media_for('/a.mkv'))
+        window.found(media_for(native_path('/a.mkv')))
         window.table.selectRow(0)
         self.assertTrue(window.remove_button.isEnabled())
         window.output_dir.setText('abc')
@@ -595,7 +608,7 @@ class GuiTests(unittest.TestCase):
 
     def test_empty_context_click_and_cleared_selection_remove_nothing(self):
         window = Window()
-        window.found(media_for('/a.mkv'))
+        window.found(media_for(native_path('/a.mkv')))
         window.show()
         self.app.processEvents()
         window.table.selectRow(0)
@@ -606,7 +619,7 @@ class GuiTests(unittest.TestCase):
         window.table.clearSelection()
         self.assertFalse(window.remove_button.isEnabled())
         window.remove_selected()
-        self.assertEqual(window.rows, {'/a.mkv': 0})
+        self.assertEqual(window.rows, {native_path('/a.mkv'): 0})
         window.close()
 
 

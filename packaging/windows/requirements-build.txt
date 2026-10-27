@@ -1,0 +1,3 @@
+# Top-level build/runtime versions. Exact resolved versions are also recorded.
+PySide6==6.11.2
+PyInstaller==6.22.3

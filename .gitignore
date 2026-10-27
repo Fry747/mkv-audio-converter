@@ -16,3 +16,7 @@ dist/
 
 # Generated salvage reports (may include private media paths)
 *.recovery.json
+
+# Windows build environments and local vendor tools
+.venv-build/
+/tools/

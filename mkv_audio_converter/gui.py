@@ -8,7 +8,7 @@ from pathlib import Path
 import threading
 import time
 
-from PySide6.QtCore import QSettings, QThread, Signal, Qt, QUrl
+from PySide6.QtCore import QSettings, QThread, QTimer, Signal, Qt, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from . import runtime
 from .repair import RepairPlan, analyze, recover
 from . import __version__
 from .core import Cancelled, ConversionError, Media, Options, Runner, SourceDamageError, check_tools, convert, discover, inspect
@@ -394,6 +395,11 @@ class Window(QMainWindow):
         actions.addWidget(self.start_button)
         layout.addLayout(actions)
         self.setAcceptDrops(True)
+        if runtime.windows():
+            tools_menu = self.menuBar().addMenu("Werkzeuge")
+            setup_action = tools_menu.addAction("Windows-Werkzeuge einrichten …")
+            setup_action.triggered.connect(self.configure_windows_tools)
+            self.busy_controls.append(setup_action)
         self.refresh_actions()
 
     def add_files(self):
@@ -519,7 +525,23 @@ class Window(QMainWindow):
         self.damage_errors = {p: reason for p, reason in self.damage_errors.items() if p in self.rows}
         self.refresh_actions()
 
+    def configure_windows_tools(self):
+        if self.worker is not None:
+            return False
+        from .windows_setup import SetupDialog
+        dialog = SetupDialog(self)
+        try:
+            return dialog.exec() == QDialog.DialogCode.Accepted
+        finally:
+            dialog.deleteLater()
+
     def begin(self, worker):
+        if runtime.windows():
+            from .windows_setup import needs_setup
+            if needs_setup() and not self.configure_windows_tools():
+                worker.deleteLater()
+                self.phase.setText("Werkzeuge fehlen. Einrichtung über das Menü Werkzeuge möglich.")
+                return
         self.worker = worker
         self.file_menu.close()
         self.progress_bar.setValue(0)
@@ -740,12 +762,18 @@ class Window(QMainWindow):
         super().closeEvent(event)
 
 
-def launch(paths=()):
+def launch(paths=(), *, smoke_test=False):
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("MKV Audio Converter")
     app.setApplicationVersion(__version__)
     window = Window()
     window.show()
-    if paths:
-        window.scan([Path(p) for p in paths])
+    if smoke_test:
+        QTimer.singleShot(350, window.close)
+    elif paths:
+        QTimer.singleShot(0, lambda: window.scan([Path(p) for p in paths]))
+    elif runtime.windows():
+        from .windows_setup import needs_setup
+        if needs_setup():
+            QTimer.singleShot(0, window.configure_windows_tools)
     return app.exec()
