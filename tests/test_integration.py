@@ -108,9 +108,27 @@ class MediaTests(unittest.TestCase):
         cls.temp.cleanup()
 
     def test_two_dts_vfr_order_metadata_sync_and_unchanged_payloads(self):
+        class RecordingRunner(Runner):
+            def __init__(self):
+                super().__init__()
+                self.commands = []
+            def run(self, args, **kwargs):
+                self.commands.append([str(x) for x in args])
+                return super().run(args, **kwargs)
+        recording = RecordingRunner()
         media = inspect(self.rich, self.runner)
         original_hash = hashlib.sha256(self.rich.read_bytes()).digest()
-        result = convert(media, Options(self.root / 'rich-output'), self.runner)
+        values = []
+        result = convert(media, Options(self.root / 'rich-output'), recording,
+                         lambda value, phase: values.append(value))
+        prepare = [c for c in recording.commands if c[0] == 'mkvmerge' and '--audio-tracks' in c
+                   and any(p.endswith('source-audio.mka') for p in c)]
+        self.assertEqual(len(prepare), 1)
+        self.assertEqual(prepare[0][prepare[0].index('--audio-tracks')+1], ','.join(str(t.id) for t in media.dts_tracks))
+        encoders = [c for c in recording.commands if c[0] == 'ffmpeg' and '-c:a' in c]
+        self.assertEqual([c[c.index('-map')+1] for c in encoders], ['0:a:0', '0:a:1'])
+        self.assertTrue(all('-xerror' in c for c in encoders))
+        self.assertEqual(values, sorted(values))
         target = inspect(result.output, self.runner)
         self.assertEqual(len(media.dts_tracks), 2)
         self.assertFalse(target.dts_tracks)
@@ -162,6 +180,18 @@ class MediaTests(unittest.TestCase):
                 '-af', 'aselect=not(between(t\\,0.5\\,1.0))', '-c:v', 'ffv1', '-c:a', 'dca', '-strict', '-2', gap)
         result = convert(inspect(gap, self.runner), Options(self.root / 'gap-output'), self.runner)
         self.assertAlmostEqual(content_peak_time(gap), content_peak_time(result.output), delta=.006)
+
+    def test_real_legacy_chapter_roundtrip_without_initial_ietf(self):
+        legacy = self.root / 'legacy-chapters.mkv'
+        rich = inspect(self.rich, self.runner)
+        command('mkvmerge', '-q', '--disable-language-ietf', '--track-order',
+                ','.join(f'0:{t.id}' for t in rich.tracks), '-o', legacy, self.rich)
+        original = extract_xml(self.runner, legacy, 'chapters')
+        self.assertNotIn('ChapLanguageIETF', original)
+        result = convert(inspect(legacy, self.runner), Options(self.root / 'legacy-output'), self.runner)
+        chapters = extract_xml(self.runner, result.output, 'chapters')
+        self.assertIn('ChapLanguageIETF', chapters)
+        self.assertEqual(xml_key(chapters, template=original), xml_key(original))
 
 
 if __name__ == '__main__':

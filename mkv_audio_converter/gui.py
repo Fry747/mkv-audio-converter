@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
-from .core import Cancelled, ConversionError, Media, Options, Runner, check_tools, convert, discover, inspect
+from .core import Cancelled, ConversionError, Media, Options, Runner, SourceDamageError, check_tools, convert, discover, inspect
 
 
 class Worker(QThread):
@@ -38,8 +38,11 @@ class Worker(QThread):
         self.cancel = threading.Event()
         self._last_progress = 0.
         self._last_phase = ""
+        self._progress_value = 0.
 
     def update_progress(self, value, phase):
+        self._progress_value = max(self._progress_value, min(1., max(0., value)))
+        value = self._progress_value
         now = time.monotonic()
         if now - self._last_progress > .1 or phase != self._last_phase or value >= 1:
             self.progress.emit(value, phase)
@@ -83,7 +86,8 @@ class Worker(QThread):
                     report["files"].append({"source": str(media.path), "error": "Abgebrochen"})
                     raise
                 except (ConversionError, OSError, ValueError) as e:
-                    self.state.emit(str(media.path), f"Fehler: {e}")
+                    self.state.emit(str(media.path), "Fehler: beschädigte Quelldatei" if
+                                    isinstance(e, SourceDamageError) else f"Fehler: {e}")
                     self.log.emit(f"FEHLER: {media.path}: {e}")
                     report["files"].append({"source": str(media.path), "error": str(e)})
                 self.update_progress((i + 1) / len(self.media), "Datei abgeschlossen")

@@ -1,0 +1,27 @@
+[
+  {
+    "source": "Test_MKV_01.mkv",
+    "status": "successful",
+    "elapsed_seconds": 534.17,
+    "warnings": [],
+    "checks": [
+      "Spurreihenfolge, Codecs, UIDs, Sprache, Titel und Flags geprüft",
+      "Kapitel, beschreibende Tags, Filmtitel und Anhang-Metadaten geprüft",
+      "Verfügbare Startzeitstempel geprüft (Toleranz 2 ms)",
+      "Alle Audio-/Video-Paketzeitstempel gelesen; AC3-Start und Ende geprüft",
+      "Kopierte Spuren: SHA-256 der Pakete und alle PTS geprüft",
+      "Anhänge: 2 Inhalte mit SHA-256 geprüft",
+      "Alle erzeugten AC3-Spuren vollständig fehlerfrei decodiert"
+    ],
+    "original_signature_unchanged": true
+  },
+  {
+    "source": "TEST_MKV_02.mkv",
+    "status": "rejected_source_damage",
+    "elapsed_seconds": 22.94,
+    "source_error_byte_position": 8144052744,
+    "ffmpeg_started": false,
+    "temporary_files_removed": true,
+    "original_signature_unchanged": true
+  }
+]

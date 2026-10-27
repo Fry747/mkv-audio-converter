@@ -1,5 +1,8 @@
 # MKV Audio Converter
 
+Version **1.0.1** · Kapitelprüfung korrigiert, Fortschritt stabilisiert und
+beschädigte Matroska-Quellen frühzeitig erkannt. Details: [FEHLERANALYSE.md](FEHLERANALYSE.md).
+
 Eine native PySide6-Anwendung für Fedora KDE: MKV-Dateien oder ganze Ordner
 auswählen, alle DTS-Tonspuren nach AC3 umwandeln und die fertigen Dateien separat
 speichern. **Originaldateien werden nicht verändert.**
@@ -109,10 +112,11 @@ aus unterschiedlichen Ordnern. Vorhandene Dateien werden niemals ersetzt.
 
 1. `mkvmerge -J` liest die Matroska-Spuren ein. Es werden echte MKVToolNix-IDs
    verwendet, keine angenommenen FFmpeg-Streamnummern.
-2. Jede DTS-Spur wird mit MKVToolNix als einzelne temporäre MKA bereitgestellt.
-   Video wird dabei nicht übernommen. Das vermeidet eine mehrdeutige Zuordnung
-   zwischen FFmpeg- und MKVToolNix-Track-IDs.
-3. FFmpeg decodiert ausschließlich diese Audiospur und erzeugt eine AC3-MKA.
+2. Alle DTS-Spuren werden mit einem einzigen MKVToolNix-Durchlauf gemeinsam in
+   einer temporären MKA bereitgestellt. Ihre Reihenfolge wird ausdrücklich
+   festgelegt. Die große Quelldatei wird dadurch für diesen Schritt einmal
+   gelesen. Video wird dabei nicht übernommen.
+3. FFmpeg decodiert jede ausgewählte Audiospur genau einmal und erzeugt je eine AC3-MKA.
    `-copyts` erhält den Zeitbezug; es gibt kein `-start_at_zero`. Die MKA enthält
    auch die von FFmpeg gesetzte AC3-Encoderverzögerung (`CodecDelay`).
    `aresample=async=1` gleicht Tonlücken anhand der Zeitstempel mit Stille aus,
@@ -167,6 +171,10 @@ Die Prüfung ist obligatorisch und umfasst:
 Prüfungen einschließlich Audio-Decodierung und Start-/Endvergleich bleiben
 aktiv. Die Zusatzprüfung benötigt zusätzliche Lesezeit. Ein Fortschrittsbalken
 gewichtet Vorbereitung/Audio, Remux und Prüfung; er ist keine genaue Restzeit.
+Innerhalb eines Durchlaufs steigt er ausschließlich oder bleibt stehen. Im
+Protokoll stehen Startzeit und Laufzeit jedes Werkzeugaufrufs. MKVToolNix-
+Warnungen werden sofort als Text angezeigt, auch wenn daneben Fortschritt
+gemeldet wird.
 
 AC3 ist eine verlustbehaftete Umwandlung; DTS-HD-/Objektinformationen werden
 nicht erhalten. Exotische Kanalanordnungen, beschädigte Zeitstempel oder vom
@@ -175,6 +183,13 @@ Fehlerstatus führen. Dann entsteht keine fertige Ausgabe. Tonlücken können
 Stille erzeugen; die Anwendung repariert keine bereits falsch synchronisierte
 Quelle. Ein erfolgreicher Container-/Datencheck ersetzt keinen Wiedergabetest
 auf dem konkreten Fernseher.
+
+Bei einer MKVToolNix-Warnung über eine beschädigte EBML-Struktur bzw. eine
+Wiederherstellungssuche (`Resyncing`) bricht der Auftrag sofort ab. Auch echte
+FFmpeg-Decodierfehler brechen die Audio-Konvertierung ab (`-xerror`). Dadurch
+entsteht aus einer defekten Quelle keine vermeintlich erfolgreich geprüfte
+Datei mit übersprungenen Abschnitten. Eine solche Quelle separat reparieren
+oder durch eine intakte Kopie ersetzen und anschließend erneut verarbeiten.
 
 Die Anwendung ist für einzelne, normale MKV-Filmdateien ausgelegt. Bei extern
 verknüpften Segmenten/Ordered-Chapter-Sammlungen können Verweise auf andere

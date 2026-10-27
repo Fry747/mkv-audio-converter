@@ -34,6 +34,21 @@ class Cancelled(ConversionError):
     pass
 
 
+class SourceDamageError(ConversionError):
+    """Input recovery would silently skip data, so conversion must stop."""
+
+
+class Progress:
+    """Monotonic per-file progress despite interleaving and tool resets."""
+    def __init__(self, callback):
+        self.callback = callback
+        self.value = 0.0
+
+    def __call__(self, value: float, phase: str):
+        self.value = max(self.value, min(1.0, max(0.0, value)))
+        self.callback(self.value, phase)
+
+
 TOOLS = ("mkvmerge", "mkvextract", "mkvpropedit", "ffmpeg", "ffprobe")
 FLAG_OPTIONS = {
     "default_track": ("--default-track-flag", "flag-default", True),
@@ -150,10 +165,11 @@ class Runner:
 
     def run(self, args: list[str | Path], *, capture: bool = False,
             on_line: Callable[[str], None] | None = None,
-            timeout: float | None = None, stderr_error: bool = False) -> str:
+            timeout: float | None = None, stderr_error: bool = False,
+            reject_resync: bool = False) -> str:
         self.check_cancel()
         command = [str(x) for x in args]
-        self.log("$ " + shlex.join(command))
+        self.log(f"[{time.strftime('%H:%M:%S')}] $ " + shlex.join(command))
         env = os.environ.copy()
         env["LC_ALL"] = "C.UTF-8"
         for name in list(env):
@@ -163,6 +179,7 @@ class Runner:
         capture_size = 0
         tail: deque[str] = deque(maxlen=30)
         stderr_lines: deque[str] = deque(maxlen=30)
+        command_warnings: list[str] = []
         start = time.monotonic()
         try:
             proc = subprocess.Popen(command, stdin=subprocess.DEVNULL,
@@ -175,6 +192,18 @@ class Runner:
         def emit(raw: bytes, stdout: bool):
             nonlocal capture_size
             line = raw.decode("utf-8", errors="replace")
+            is_warning = line.startswith(("#GUI#warning ", "Warning:"))
+            if is_warning:
+                message = line.removeprefix("#GUI#warning ")
+                warning = f"{Path(command[0]).name}: Warnung: {message}"
+                command_warnings.append(warning)
+                self.warnings.append(warning)
+                self.log(warning)
+                if reject_resync and re.search(r"resync|invalid EBML", message, re.I):
+                    raise SourceDamageError(
+                        "Quelle enthält beschädigte oder nicht lesbare Matroska-Daten; "
+                        "Wiederherstellungssuche abgebrochen, damit keine Daten unbemerkt verloren gehen. "
+                        + message)
             if stdout and capture:
                 capture_size += len(raw) + 1
                 if capture_size > 64 * 1024 * 1024:
@@ -186,7 +215,7 @@ class Runner:
                 tail.append(line)
                 if not stdout:
                     stderr_lines.append(line)
-                if (not stdout or (not capture and on_line is None)):
+                if not is_warning and (not stdout or (not capture and on_line is None)):
                     self.log(line)
 
         try:
@@ -217,13 +246,16 @@ class Runner:
                 raise ConversionError(f"{Path(command[0]).name}: Fehlermeldungen:\n" + "\n".join(stderr_lines))
             is_mkv = Path(command[0]).name.startswith(("mkvmerge", "mkvextract", "mkvpropedit"))
             if code == 1 and is_mkv:
-                warning = f"{Path(command[0]).name}: Warnung (Exit 1): " + "\n".join(tail)
-                self.warnings.append(warning)
-                self.log(warning)
+                if not command_warnings:
+                    warning = f"{Path(command[0]).name}: Warnung (Exit 1): " + "\n".join(tail)
+                    self.warnings.append(warning)
+                    self.log(warning)
             elif code != 0:
                 raise ConversionError(f"{Path(command[0]).name}: Exit {code}\n" + "\n".join(tail))
             elif stderr_lines and not capture:
                 self.warnings.append(f"{Path(command[0]).name}: " + "\n".join(stderr_lines))
+            self.log(f"[{time.strftime('%H:%M:%S')}] {Path(command[0]).name} abgeschlossen "
+                     f"in {time.monotonic() - start:.1f} s")
             return "".join(chunks)
         finally:
             if proc.poll() is None:
@@ -340,7 +372,7 @@ def xml_key(raw: str, template: str | None = None):
             # Existing IETF values must still match exactly.
             present = {child.tag for child in original}
             for child in list(node):
-                if child.tag in ("TagLanguageIETF", "ChapterLanguageIETF") and child.tag not in present:
+                if child.tag in ("TagLanguageIETF", "ChapLanguageIETF") and child.tag not in present:
                     node.remove(child)
             for child, prior in zip(node, original):
                 remove_derived(child, prior)
@@ -350,6 +382,24 @@ def xml_key(raw: str, template: str | None = None):
         return (node.tag, "" if list(node) else (node.text or ""), tuple(sorted(node.attrib.items())),
                 tuple(key(child) for child in node))
     return key(root)
+
+
+def xml_difference(expected: str, actual: str) -> str:
+    """Give the first differing element, rather than losing all diagnostics."""
+    a, b = xml_key(expected), xml_key(actual, template=expected)
+
+    def difference(old, new, path):
+        if old is None or new is None:
+            return f"{path}: XML fehlt oder ist leer"
+        if old[:3] != new[:3]:
+            return f"{path}: erwartet {old[:3]!r}, erhalten {new[:3]!r}"
+        if len(old[3]) != len(new[3]):
+            return f"{path}: unterschiedliche Unterelemente ({len(old[3])}/{len(new[3])})"
+        for index, (left, right) in enumerate(zip(old[3], new[3]), 1):
+            if left != right:
+                return difference(left, right, f"{path}/{left[0]}[{index}]")
+        return path
+    return difference(a, b, a[0] if a else "XML")[:600]
 
 
 def extract_xml(runner: Runner, path: Path, mode: str) -> str:
@@ -429,7 +479,7 @@ def metadata_check(source: Media, target: Media, chapters: str, tags: str,
     for mode, expected in (("chapters", chapters), ("tags", tags)):
         actual = extract_xml(runner, target.path, mode)
         if xml_key(actual, template=expected) != xml_key(expected):
-            raise ConversionError(f"Ergebnisprüfung: {mode} verändert.")
+            raise ConversionError(f"Ergebnisprüfung: {mode} verändert. " + xml_difference(expected, actual))
     # minimum_timestamp is available only for tracks starting near the file's
     # beginning. Full packet validation below also covers very late audio tracks.
     for old, new in zip(source.tracks, target.tracks):
@@ -588,6 +638,7 @@ def publish(temp: Path, source: Path, destination: Path) -> Path:
 
 def convert(media: Media, options: Options, runner: Runner,
             progress: Callable[[float, str], None] = lambda *_: None) -> Result:
+    progress = Progress(progress)
     if signature(media.path) != media.signature:
         raise ConversionError("Quelldatei wurde seit dem Einlesen verändert. Bitte erneut prüfen.")
     if not media.dts_tracks:
@@ -607,23 +658,31 @@ def convert(media: Media, options: Options, runner: Runner,
     with tempfile.TemporaryDirectory(prefix=".mkv-audio-converter-", dir=destination) as folder:
         work = Path(folder)
         replacements = {}
+        isolated = work / "source-audio.mka"
+        progress(0., "Alle DTS-Spuren gemeinsam vorbereiten")
+        def prepare_progress(line):
+            match = re.search(r"(?:#GUI#progress |Progress: )(\d+)%?", line)
+            if match:
+                progress(.15 * int(match[1]) / 100, "Alle DTS-Spuren gemeinsam vorbereiten")
+        # Read the large original only once for all DTS tracks. Explicit order
+        # makes 0:a:position below unambiguous without relying on source IDs.
+        runner.run(["mkvmerge", "--gui-mode", "--disable-track-statistics-tags",
+                    "--track-order", ",".join(f"0:{t.id}" for t in media.dts_tracks),
+                    "-o", isolated, "--audio-tracks", ",".join(str(t.id) for t in media.dts_tracks),
+                    "--no-video", "--no-subtitles", "--no-buttons", "--no-attachments", "--no-chapters",
+                    "--no-global-tags", "--no-track-tags", media.path],
+                   on_line=prepare_progress, reject_resync=True)
         for pos, track in enumerate(media.dts_tracks):
             runner.check_cancel()
             label = f"DTS-Spur {pos+1}/{len(media.dts_tracks)}"
-            base, width = .65 * pos / len(media.dts_tracks), .65 / len(media.dts_tracks)
-            isolated, encoded = work / f"source-{track.id}.mka", work / f"ac3-{track.id}.mka"
-            def mkv_progress(line, base=base, width=width):
-                match = re.search(r"(?:#GUI#progress |Progress: )(\d+)%?", line)
-                if match:
-                    progress(base + width * .2 * int(match[1]) / 100, label + " vorbereiten")
-            runner.run(["mkvmerge", "--gui-mode", "--disable-track-statistics-tags",
-                        "-o", isolated, "--audio-tracks", str(track.id), "--no-video",
-                        "--no-subtitles", "--no-buttons", "--no-attachments", "--no-chapters",
-                        "--no-global-tags", "--no-track-tags", media.path], on_line=mkv_progress)
+            base, width = .15 + .50 * pos / len(media.dts_tracks), .50 / len(media.dts_tracks)
+            encoded = work / f"ac3-{track.id}.mka"
+            progress(base, label + " → AC3")
             # Copy timestamps (no start_at_zero) and keep CodecDelay in MKA.
             # aresample fills timestamp gaps without continuous clock stretching.
-            args: list[str | Path] = ["ffmpeg", "-hide_banner", "-nostdin", "-v", "warning", "-n",
-                                     "-copyts", "-i", isolated, "-map", "0:a:0", "-vn", "-sn", "-dn",
+            args: list[str | Path] = ["ffmpeg", "-hide_banner", "-nostdin", "-v", "warning", "-n", "-xerror",
+                                     "-copyts", "-err_detect", "explode", "-i", isolated,
+                                     "-map", f"0:a:{pos}", "-vn", "-sn", "-dn",
                                      "-map_metadata", "-1", "-map_chapters", "-1",
                                      "-af", "aresample=async=1", "-c:a", "ac3", "-b:a", f"{options.bitrate}k",
                                      "-ar", "48000"]
@@ -635,20 +694,20 @@ def convert(media: Media, options: Options, runner: Runner,
                 if line.startswith("out_time_us="):
                     try:
                         part = float(line.split("=", 1)[1]) / 1e6 / max(media.duration, 1)
-                        progress(base + width * (.2 + .8 * min(1., max(0., part))), label + " → AC3")
+                        progress(base + width * min(1., max(0., part)), label + " → AC3")
                     except ValueError:
                         pass
             runner.run(args, on_line=ff_progress)
             if not encoded.is_file() or encoded.stat().st_size == 0:
                 raise ConversionError("FFmpeg hat keine Audiodatei erzeugt.")
-            isolated.unlink()
             replacements[track.id] = encoded
+        isolated.unlink()
         output = work / "converted.mkv"
         def mux_progress(line):
             match = re.search(r"(?:#GUI#progress |Progress: )(\d+)%?", line)
             if match:
                 progress(.65 + .15 * int(match[1]) / 100, "MKV neu verpacken")
-        runner.run(remux_command(media, replacements, output), on_line=mux_progress)
+        runner.run(remux_command(media, replacements, output), on_line=mux_progress, reject_resync=True)
         progress(.80, "Metadaten wiederherstellen und prüfen")
         chapters, tags = restore_metadata(media, output, work, runner)
         target = inspect(output, runner)
@@ -659,12 +718,15 @@ def convert(media: Media, options: Options, runner: Runner,
             checks += attachment_check(media, target, runner, work)
         # Decode converted tracks completely. FFmpeg never decodes the video.
         audio_index = 0
+        verified = 0
         for old in media.tracks:
             if old.type == "audio":
                 if old.dts:
+                    progress(.99, f"AC3-Spur {verified + 1}/{len(media.dts_tracks)} vollständig prüfen")
                     runner.run(["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-xerror",
                                 "-i", output, "-map", f"0:a:{audio_index}", "-vn", "-sn", "-dn",
                                 "-f", "null", "-"], stderr_error=True)
+                    verified += 1
                 audio_index += 1
         checks.append("Alle erzeugten AC3-Spuren vollständig fehlerfrei decodiert")
         runner.check_cancel()

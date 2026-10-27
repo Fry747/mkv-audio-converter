@@ -8,16 +8,18 @@ import subprocess
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 try:
     from PySide6.QtCore import QSettings
     from PySide6.QtWidgets import QApplication
-    from mkv_audio_converter.gui import Window
+    from mkv_audio_converter.gui import Window, Worker
     HAVE_QT = True
 except ImportError:
     HAVE_QT = False
 
-from mkv_audio_converter.core import TOOLS
+from mkv_audio_converter.core import Options, SourceDamageError, TOOLS
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 fehlt')
@@ -57,6 +59,25 @@ class GuiTests(unittest.TestCase):
         window.remove_selected()
         self.assertEqual(window.table.rowCount(), 0)
         window.close()
+
+    def test_worker_progress_never_regresses_on_phase_changes(self):
+        worker = Worker()
+        values = []
+        worker.progress.connect(lambda value, phase: values.append(value))
+        for value, phase in ((.7, 'mux'), (.65, 'mux restarted progress'), (.8, 'metadata')):
+            worker.update_progress(value, phase)
+        self.assertEqual(values, [.7, .7, .8])
+
+    def test_source_damage_has_clear_status_and_detailed_report(self):
+        worker = Worker(media=[SimpleNamespace(path=Path('/source.mkv'))], options=Options())
+        states, reports = [], []
+        worker.state.connect(lambda path, state: states.append(state))
+        worker.report_ready.connect(reports.append)
+        with patch('mkv_audio_converter.gui.check_tools', return_value={}), \
+             patch('mkv_audio_converter.gui.convert', side_effect=SourceDamageError('Resyncing at 1234')):
+            worker.run()
+        self.assertEqual(states[-1], 'Fehler: beschädigte Quelldatei')
+        self.assertIn('Resyncing at 1234', reports[0]['files'][0]['error'])
 
     @unittest.skipUnless(all(shutil.which(t) for t in TOOLS), 'FFmpeg/MKVToolNix fehlen')
     def test_scan_convert_report_and_rescan(self):

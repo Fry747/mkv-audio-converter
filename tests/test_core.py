@@ -9,8 +9,8 @@ import unittest
 from unittest.mock import patch
 
 from mkv_audio_converter.core import (
-    Cancelled, ConversionError, Media, Options, Runner, Track, convert, discover,
-    publish, remux_command, sanitize_tags, signature, xml_key,
+    Cancelled, ConversionError, Media, Options, Progress, Runner, SourceDamageError, Track, convert, discover,
+    publish, remux_command, sanitize_tags, signature, xml_difference, xml_key,
 )
 
 
@@ -62,6 +62,45 @@ class CoreTests(unittest.TestCase):
         new = '<Tags><Tag><Simple><Name>A</Name><String> B </String><TagLanguageIETF>und</TagLanguageIETF></Simple></Tag></Tags>'
         self.assertEqual(xml_key(new, template=old), xml_key(old))
         self.assertNotEqual(xml_key(new.replace(' B ', 'B'), template=old), xml_key(old))
+
+    def test_legacy_chapters_accept_actual_chap_language_ietf_element(self):
+        old = '\ufeff<?xml version="1.0"?><Chapters><EditionEntry><ChapterAtom><ChapterUID>17</ChapterUID><ChapterTimeStart>00:00:01.000000000</ChapterTimeStart><ChapterDisplay><ChapterString>Kapitel 1</ChapterString><ChapterLanguage>eng</ChapterLanguage></ChapterDisplay></ChapterAtom></EditionEntry></Chapters>'
+        new = old.replace('</ChapterDisplay>', '<ChapLanguageIETF>en</ChapLanguageIETF></ChapterDisplay>')
+        self.assertEqual(xml_key(new, template=old), xml_key(old))
+        changed = new.replace('Kapitel 1', 'Kapitel 2')
+        self.assertNotEqual(xml_key(changed, template=old), xml_key(old))
+        self.assertIn('ChapterString', xml_difference(old, changed))
+        self.assertNotEqual(xml_key(new.replace('00:00:01.', '00:00:02.'), template=old), xml_key(old))
+
+    def test_existing_chapter_ietf_language_stays_strict(self):
+        old = '<Chapters><EditionEntry><ChapterAtom><ChapterDisplay><ChapterString>One</ChapterString><ChapterLanguage>eng</ChapterLanguage><ChapLanguageIETF>en-US</ChapLanguageIETF></ChapterDisplay></ChapterAtom></EditionEntry></Chapters>'
+        self.assertNotEqual(xml_key(old.replace('en-US', 'en-GB'), template=old), xml_key(old))
+
+    def test_progress_never_moves_backwards(self):
+        values = []
+        progress = Progress(lambda value, phase: values.append(value))
+        for value in (0, .4, .35, .7, .1, 1.2, .9):
+            progress(value, 'phase')
+        self.assertEqual(values, [0, .4, .4, .7, .7, 1, 1])
+
+    def test_resync_warning_aborts_silent_recovery_immediately(self):
+        logs = []
+        start = time.monotonic()
+        with self.assertRaisesRegex(SourceDamageError, 'Matroska'):
+            Runner(log=logs.append).run([sys.executable, '-u', '-c',
+                'import time;print("#GUI#warning Resyncing at position 1234");time.sleep(30)'],
+                on_line=lambda _: None, reject_resync=True)
+        self.assertLess(time.monotonic() - start, 3)
+        self.assertTrue(any('Resyncing at position 1234' in line for line in logs))
+
+    def test_gui_warning_is_logged_live_without_progress_tail(self):
+        logs = []
+        runner = Runner(log=logs.append)
+        runner.run([sys.executable, '-c',
+            'print("#GUI#warning Important warning");print("#GUI#progress 100%")'], on_line=lambda _: None)
+        self.assertEqual(len(runner.warnings), 1)
+        self.assertIn('Important warning', runner.warnings[0])
+        self.assertNotIn('#GUI#progress', runner.warnings[0])
 
     def test_recursive_discovery_deduplicates_and_ignores_temp_dirs(self):
         with tempfile.TemporaryDirectory() as folder:
