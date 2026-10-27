@@ -5,8 +5,8 @@
 **Ein Installer für normale Benutzer, zusätzlich eine portable ZIP.** Beide
 enthalten dieselbe GUI-EXE, eine zusätzliche Konsolen-EXE für CLI-Aufgaben,
 Python, PySide6/Qt und deren Laufzeitdateien. Python muss auf dem Zielrechner
-nicht installiert sein. Ziel: **Windows 10 ab 1809 bzw. Windows 11, x64
-(Intel/AMD)**. Kein zugesicherter ARM64-/32-Bit-Build.
+nicht installiert sein. **Praktisch getestet: Windows 11 x64 (Intel/AMD).** Windows 10 ab 1809 ist
+technisch vorgesehen, aber bisher nicht praktisch abgenommen. Kein zugesicherter ARM64-/32-Bit-Build.
 
 Der Ordner-Build mit PyInstaller ist bewusst gewählt: zuverlässiger Start,
 separate Laufzeitdateien und identischer Inhalt für Installer und ZIP. Eine
@@ -122,7 +122,7 @@ py -3 -m venv .venv
 ## Windows-Pakete bauen
 
 Der Windows-Build muss auf Windows erstellt werden. PyInstaller ist kein
-Linux→Windows-Crosscompiler. Python 3.13 x64 und Inno Setup 6 bereitstellen:
+Linux→Windows-Crosscompiler. Python 3.13.17 x64 und Inno Setup 6 bereitstellen:
 
 ```powershell
 .\packaging\windows\build-windows.ps1
@@ -134,11 +134,16 @@ Build-Abhängigkeiten und erzeugt unter `dist\windows`:
 - Installer-EXE,
 - portable ZIP,
 - den aktuellen Anwendungsquellcode als ZIP,
+- passende Qt-/PySide6-Originalquellen als separates ZIP,
 - `SHA256SUMS.txt`.
+
+Der Build lädt zusätzlich rund 66 MiB gepinnte LGPL-Quellen und prüft deren
+SHA-256. Ohne diese Quellen oder bei unerwarteten Qt-Komponenten wird kein
+Release-Paket fertiggestellt. Alle fünf Dateien gemeinsam veröffentlichen.
 
 Nur ZIP: `build-windows.ps1 -SkipInstaller`. `build-dependencies.json` und
 `licenses` liegen im Programmpaket. Hinweise zu Drittanbietern:
-[THIRD_PARTY.md](THIRD_PARTY.md). Keine Python-/Tooldownloads beim normalen
+[THIRD_PARTY.md](../THIRD_PARTY.md). Keine Python-/Tooldownloads beim normalen
 Programmstart, wenn alles bereits eingerichtet ist.
 
 ### GitHub Actions
@@ -157,11 +162,13 @@ Codekorrektur muss über **Run workflow** mit dem aktuellen Branch gestartet wer
 
 Es wird kein GitHub-Release automatisch veröffentlicht.
 
-Ein echter Desktoptest für Installation/Deinstallation, Dateidialoge und
-Drag-and-drop auf Windows 10/11 bleibt vor einer Freigabe sinnvoll. Ein Linux-
+Der Nutzer hat Installation, Ersteinrichtung, Bedienung, echte Medien, Fehlerfälle
+und Verteilung auf Windows 11 erfolgreich geprüft (27. Oktober 2026). Änderungen
+an Fortschrittsanzeige, Symbolen und Paketinhalt erfordern einen erneuten Build
+und einen kurzen praktischen Nachtest vor der Freigabe. Ein Linux-
 Testlauf oder ein erfolgreich entpacktes EXE-Archiv ist kein Nachweis eines
 funktionierenden Windows-Programms. Der aktuelle Prüfstand steht im
-[TESTBERICHT-1.3.0.md](TESTBERICHT-1.3.0.md).
+[Prüfstand 1.3.0](testing/README.md).
 
 Die zunächst erzeugten EXEs sind unsigniert. Für öffentliche Downloads ist
 Authenticode-Signierung der beiden Programm-EXEs und danach des Installers

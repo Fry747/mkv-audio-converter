@@ -20,7 +20,7 @@ folder.mkdir(parents=True, exist_ok=True)
 target = folder / 'mkv-audio-converter.desktop'
 target.write_text('[Desktop Entry]\nType=Application\nName=MKV Audio Converter\n'
                   'Comment=DTS-Tonspuren nach AC3 konvertieren\n'
-                  f'Exec={exec_line}\nIcon=audio-x-generic\nTerminal=false\n'
+                  f'Exec={exec_line}\nIcon={root / "mkv_audio_converter/assets/icon.png"}\nTerminal=false\n'
                   'Categories=AudioVideo;Audio;\nMimeType=video/x-matroska;\n', encoding='utf-8')
 print(f'Menüeintrag installiert: {target}')
 print('Der Projektordner muss an diesem Ort bleiben. Entfernen: diese .desktop-Datei löschen.')

@@ -261,7 +261,7 @@ class Window(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"MKV Audio Converter {__version__}")
-        self.setWindowIcon(QIcon.fromTheme("audio-x-generic"))
+        self.setWindowIcon(QIcon(str(Path(__file__).parent / "assets" / "icon.png")))
         self.resize(1120, 780)
         self.settings = QSettings("MKVAudioConverter", "MKVAudioConverter")
         self.media: dict[str, Media] = {}
@@ -283,7 +283,14 @@ class Window(QMainWindow):
         font.setPointSize(22)
         font.setBold(True)
         heading.setFont(font)
-        layout.addWidget(heading)
+        heading_row = QHBoxLayout()
+        logo = QLabel()
+        logo.setPixmap(self.windowIcon().pixmap(44, 44))
+        heading_row.addWidget(logo)
+        heading_row.addWidget(heading)
+        heading_row.addStretch()
+        heading_row.addWidget(QLabel(f"Version {__version__}"))
+        layout.addLayout(heading_row)
         intro = QLabel("DTS → AC3 · Originale bleiben erhalten · Video wird unverändert übernommen")
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -400,7 +407,21 @@ class Window(QMainWindow):
             setup_action = tools_menu.addAction("Windows-Werkzeuge einrichten …")
             setup_action.triggered.connect(self.configure_windows_tools)
             self.busy_controls.append(setup_action)
+        help_menu = self.menuBar().addMenu("Hilfe")
+        help_menu.addAction("Über MKV Audio Converter …", self.show_about)
+        help_menu.addAction("Über Qt …", lambda: QMessageBox.aboutQt(self))
         self.refresh_actions()
+
+    def show_about(self):
+        QMessageBox.about(self, "Über MKV Audio Converter",
+            f"<h3>MKV Audio Converter {__version__}</h3>"
+            "<p>DTS → AC3 mit unverändertem Video. Anwendungscode: MIT.</p>"
+            "<p>Verwendet Qt/PySide6 von The Qt Company Ltd. und Mitwirkenden "
+            "unter LGPLv3. Das Notensymbol stammt aus KDE Breeze, "
+            "© 2014 Uri Herrera und weitere Mitwirkende, LGPLv3 oder neuer.</p>"
+            "<p>Lizenztexte und Hinweise: THIRD_PARTY.md und licenses/ im Programmpaket. "
+            "Quellcode und Bauanleitung: "
+            '<a href="https://github.com/Fry747/mkv-audio-converter">GitHub-Projekt</a>.</p>')
 
     def add_files(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "MKV-Dateien auswählen", "", "Matroska (*.mkv *.MKV)")
@@ -668,6 +689,9 @@ class Window(QMainWindow):
                 self.set_state(str(plan.media.path), "Rettungsanalyse beendet · keine Ausgabe")
 
     def progress_changed(self, value, phase):
+        # Queued tool updates may still arrive while cancellation is cleaning up.
+        if self.worker is None or self.worker.cancel.is_set():
+            return
         self.progress_bar.setValue(round(value * 1000))
         self.phase.setText(phase)
 
@@ -699,17 +723,21 @@ class Window(QMainWindow):
 
     def finished(self):
         worker = self.worker
+        cancelled = worker.cancel.is_set()
         self.worker = None
         worker.deleteLater()
+        if cancelled:
+            self.progress_bar.setValue(0)
         for control in self.busy_controls:
             control.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self.refresh_actions()
         count = len(self.recovery_candidates())
-        self.phase.setText(
-            f"Vorgang beendet. {count} beschädigte Datei(en) können über „Beschädigte Dateien retten“ "
-            "ausgewählt werden." if count else
-            "Vorgang beendet. Status und Protokoll enthalten die Ergebnisse.")
+        prefix = "Abgebrochen." if cancelled else "Vorgang beendet."
+        detail = (f"{count} beschädigte Datei(en) können über „Beschädigte Dateien retten“ "
+                  "ausgewählt werden." if count else
+                  "Status und Protokoll enthalten die Ergebnisse.")
+        self.phase.setText(f"{prefix} {detail}")
         if self.pending_repairs is not None:
             plans, self.pending_repairs = self.pending_repairs, None
             if worker.cancel.is_set():
@@ -766,6 +794,13 @@ def launch(paths=(), *, smoke_test=False):
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("MKV Audio Converter")
     app.setApplicationVersion(__version__)
+    app.setWindowIcon(QIcon(str(Path(__file__).parent / "assets" / "icon.png")))
+    import sys
+    if sys.platform == "win32":
+        import ctypes
+        set_id = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+        set_id.argtypes, set_id.restype = [ctypes.c_wchar_p], ctypes.c_long
+        set_id("Fry747.MKVAudioConverter")
     window = Window()
     window.show()
     if smoke_test:

@@ -19,4 +19,13 @@ dist/
 
 # Windows build environments and local vendor tools
 .venv-build/
-/tools/
+/tools/*
+!/tools/*.py
+/windows-*.log
+/.env
+/.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+/.pytest_cache/

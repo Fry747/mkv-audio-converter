@@ -12,7 +12,7 @@ OK
 ```
 
 **34 erfolgreich, keine übersprungen.** Vollständiges Protokoll:
-[docs/tests.log](docs/tests.log).
+[docs/tests.log](logs/tests.log).
 
 Zusätzlich zu den bestehenden Konvertierungs-, Metadaten-, Synchronisations-,
 Sicherheits- und GUI-Tests decken die Regressionstests jetzt insbesondere ab:
@@ -62,7 +62,7 @@ Beide Originaldateien wurden ausschließlich gelesen. Dateiidentität, Größe u
 in den bisherigen Anwendungsordner installiert.
 
 Eine Zusammenfassung ohne persönliche Dateipfade liegt in
-[docs/real-validation.json](docs/real-validation.json).
+[docs/real-validation.json](evidence/real-validation.json).
 
 ## Weitere Prüfung und Grenzen
 

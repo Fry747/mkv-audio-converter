@@ -1,0 +1,13 @@
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.cmd text eol=crlf
+*.ps1 text eol=lf
+*.png binary
+*.ico binary
+
+# Keep upstream legal notices verbatim, including whitespace and Setext headings.
+LICENSES/** -whitespace
+LICENSES/OpenSSL-3.5.9-README.md conflict-marker-size=32

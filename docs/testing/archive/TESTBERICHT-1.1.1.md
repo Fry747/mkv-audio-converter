@@ -22,7 +22,7 @@ OK
 ```
 
 **53 Tests erfolgreich, keine übersprungen.**
-[Protokoll](docs/tests-1.1.1.log).
+[Protokoll](logs/tests-1.1.1.log).
 
 Die neuen Tests prüfen die beiden gemeldeten Titel, DTS-Familien und
 Schreibweisen, Unicode-Sprachangaben, Trennzeichen, Downmix-Kanalangaben,
@@ -54,7 +54,7 @@ Die ursprüngliche Testdatei wurde nur gelesen; Größe, Änderungszeit und
 Dateiidentität blieben unverändert. Der temporäre Audioauszug war nach der
 Konvertierung laut SHA-256 unverändert. Temporäre Testmedien wurden entfernt.
 Die Zusammenfassung enthält keine privaten absoluten Pfade:
-[docs/title-validation-1.1.1.json](docs/title-validation-1.1.1.json).
+[docs/title-validation-1.1.1.json](evidence/title-validation-1.1.1.json).
 
 Es wurde kein erneuter vollständiger Konvertierungs- oder Rettungslauf über
 den mehrstündigen Originalfilm ausgeführt. Der Videoerhalt ist in den kurzen

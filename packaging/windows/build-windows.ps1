@@ -5,8 +5,8 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Push-Location $projectRoot
 try {
     if (-not [Environment]::Is64BitProcess) { throw 'Python/PowerShell x64 wird benötigt.' }
-    & python -c "import sys; assert sys.platform == 'win32' and sys.version_info[:2] == (3, 13), 'Build benötigt Python 3.13 x64'"
-    if ($LASTEXITCODE -ne 0) { throw 'Python 3.13 x64 fehlt.' }
+    & python -c "import sys; assert sys.platform == 'win32' and sys.version_info[:3] == (3, 13, 17), 'Build benötigt Python 3.13.17 x64'"
+    if ($LASTEXITCODE -ne 0) { throw 'Python 3.13.17 x64 fehlt.' }
     if (-not (Test-Path '.venv-build\Scripts\python.exe')) {
         & python -m venv .venv-build
         if ($LASTEXITCODE -ne 0) { throw 'Build-Umgebung konnte nicht angelegt werden.' }

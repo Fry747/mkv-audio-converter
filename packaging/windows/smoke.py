@@ -13,9 +13,25 @@ sys.path.insert(0, str(ROOT))
 from mkv_audio_converter import __version__
 from mkv_audio_converter.core import Runner, inspect
 from mkv_audio_converter.runtime import configured_tools
+sys.path.insert(0, str(ROOT / 'packaging/windows'))
+from bundle_policy import audit_bundle
+import pefile
 
 bundle = Path(sys.argv[1]).resolve()
 cli, gui = bundle/'MKVAudioConverter-cli.exe', bundle/'MKVAudioConverter.exe'
+audit_bundle(bundle)
+expected_icon = (ROOT/'mkv_audio_converter/assets/icon.png').read_bytes()
+installers = sorted((ROOT/'dist/windows').glob('*-setup.exe'))
+for exe in (cli, gui, *installers):
+    with pefile.PE(str(exe)) as pe:
+        assert any(entry.id == 14 for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries), f'Icon missing: {exe}'
+        icons = [pe.get_data(language.data.struct.OffsetToData, language.data.struct.Size)
+                 for kind in pe.DIRECTORY_ENTRY_RESOURCE.entries if kind.id == 3
+                 for resource in kind.directory.entries for language in resource.directory.entries]
+        assert expected_icon in icons, f'Application note icon missing or replaced: {exe}'
+assert (bundle/'source-manifest.json').is_file()
+assert list((bundle/'licenses/upstream').rglob('LGPL-3.0-only.txt'))
+assert (bundle/'_internal/mkv_audio_converter/assets/icon.png').is_file()
 paths = configured_tools()
 def command(*args, **kwargs):
     result = subprocess.run([str(a) for a in args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,

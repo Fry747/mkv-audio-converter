@@ -12,7 +12,7 @@ OK
 ```
 
 **46 Tests erfolgreich, keine übersprungen.**
-[Protokoll](docs/tests-1.1.0.log).
+[Protokoll](logs/tests-1.1.0.log).
 
 Alle bisherigen Tests des strengen Konvertierungsmodus bestehen weiterhin.
 Die neuen Tests prüfen VINT-/Elementgrenzen, CRC-32, Lacing-Varianten,
@@ -56,7 +56,7 @@ keine vollständige Wiederherstellung des Originalfilms.
   unverändert. Die Quelle wurde ausschließlich lesend geöffnet.
 
 Die Zusammenfassung ohne private absolute Pfade steht unter
-[docs/recovery-validation.json](docs/recovery-validation.json).
+[docs/recovery-validation.json](evidence/recovery-validation.json).
 
 ## Grenzen
 

@@ -1,48 +1,86 @@
-# Drittanbieter und Windows-Pakete
+# Drittanbieter, Lizenzen und Quellen
 
-Der Anwendungscode steht unter MIT, siehe LICENSE. Unveränderte
-Drittanbieterbestandteile behalten ihre eigenen Lizenzen.
+Die [MIT-Lizenz](LICENSE) gilt für den eigenen Anwendungscode, nicht pauschal
+für sämtliche Dateien im Windows-Paket. Drittanbieter behalten ihre Lizenzen
+und Copyright-Hinweise. Das Projekt steht in keiner Herausgeberbeziehung zu ihnen.
 
-Der Windows-Build enthält CPython, PySide6/Qt und die benötigten Laufzeitbibliotheken.
-Das Buildskript sammelt die Lizenz-, Copyright- und Notice-Dateien der
-Buildumgebung unter `licenses/` und protokolliert die genauen Paketversionen in
-`build-dependencies.json`. PyInstaller wird mit seiner Bootloader-Ausnahme
-verwendet. Die Anwendung wird als Ordnerpaket verteilt; Qt-DLLs werden nicht
-in eine undurchsichtige Onefile-EXE eingeschlossen und können ersetzt werden.
+## Mit dem Windows-Paket verteilt
 
-PySide6/Qt ist u. a. unter LGPLv3 verfügbar. Lizenztexte, Hinweise, die genaue
-Version und der Zugang zum korrespondierenden Quellcode müssen mit einer
-veröffentlichten Binärdistribution erhalten bleiben. Eine kommerzielle
-Qt-Lizenz ist eine alternative Lizenzierung, wird hier aber nicht vorausgesetzt.
-Das Anwendungsquellpaket wird neben Installer und ZIP erzeugt. Für die
-unveränderten Bibliotheken stehen die offiziellen Quellarchive zur Verfügung:
+| Bestandteil | Lizenz / Behandlung |
+| --- | --- |
+| CPython 3.13.17 und enthaltene Standardbibliotheken | PSF und weitere Originallizenzen; vollständige Windows-`LICENSE.txt` wird übernommen |
+| Qt Base 6.11.2, PySide6 Essentials und Shiboken 6.11.2 | LGPLv3, dynamische Bibliotheken; Originalquellen und Lizenztexte werden beigefügt |
+| KDE-Breeze-Notensymbol | LGPLv3 oder neuer, © 2014 Uri Herrera und weitere Mitwirkende; SVG und Artwork-Klarstellung enthalten |
+| OpenSSL 3.5.9 (Python-Laufzeit) | Apache-2.0; Original-Lizenz und Copyright-/README-Hinweise unter `LICENSES/` |
+| Microsoft-C++-/Universal-CRT-Laufzeiten | Microsoft Distributable Code; Hinweise und Weitergabebedingungen in der übernommenen CPython-Windows-Lizenz |
+| PyInstaller-Bootloader | GPLv2 mit Bootloader-Ausnahme; die Ausnahme erlaubt unabhängig lizenzierte Anwendungspakete |
 
-- [CPython Quellcode und Lizenzen](https://www.python.org/downloads/source/)
-- [PySide/Qt for Python](https://code.qt.io/cgit/pyside/pyside-setup.git/)
-- [Qt-Quellarchive](https://download.qt.io/archive/qt/)
-- [PySide6 Lizenzangaben](https://pypi.org/project/PySide6/)
-- [PyInstaller Lizenz und Bootloader-Ausnahme](https://pyinstaller.org/en/stable/license.html)
+Die Mitwirkenden von Qt/PySide6, Python und den jeweiligen Unterkomponenten
+werden in deren Originalquellen und Lizenzdateien genannt. Die Auflistung ist
+eine Orientierung; die unveränderten Originaltexte im Paket gelten.
 
-FFmpeg und MKVToolNix werden **nicht als Binaries mit unserem Installer oder
-unserer ZIP weiterverteilt**. Der Einrichtungsassistent lädt die unveränderten,
-versionierten Originalarchive unmittelbar von den angegebenen Anbietern und
-belässt deren Lizenz-/Dokumentationsdateien in den entpackten Ordnern.
-Die Werkzeuge laufen als separate Prozesse. Bezugsquellen und Prüfsummen sind
-in `mkv_audio_converter/windows_tools.py` festgelegt und im Downloadbeleg
-`download-receipt.json` dokumentiert.
+Die PyInstaller-Sammlung ist auf Qt Base (Core/Gui/Widgets/Network) und benötigte
+Base-Plugins begrenzt. Insbesondere werden **Qt Virtual Keyboard, Qt PDF,
+QML/Quick und der Software-OpenGL-Renderer nicht mitgeliefert**. Ein Buildcheck
+verweigert unerwartete Qt-Komponenten. Der bloße Einbau eines anderen Qt-Moduls
+bedarf einer erneuten Prüfung; nicht alle Qt-Module sind LGPL-lizenziert.
 
-- [FFmpeg Downloads](https://ffmpeg.org/download.html)
-- [Gyan Windows-Builds](https://www.gyan.dev/ffmpeg/builds/)
-- [FFmpeg Lizenzinformationen](https://ffmpeg.org/legal.html)
-- [MKVToolNix Downloads und Prüfsummen](https://mkvtoolnix.download/downloads.html#windows)
-- [MKVToolNix Quellen](https://mkvtoolnix.download/source.html)
+## LGPL-Quellen und Austauschbarkeit
 
-Wer eigene Komplettpakete mit diesen Werkzeugen weiterverteilen möchte, muss
-zusätzlich die jeweiligen Bedingungen für diese konkrete Binärdistribution,
-einschließlich korrespondierendem Quellcode und enthaltenen Bibliotheken,
-erfüllen. Der Erststart-Download vermeidet diese zusätzliche Bündelung.
+Zusammen mit Installer und Portable-ZIP wird auf derselben Release-Seite
+`MKVAudioConverter-<Version>-third-party-sources.zip` bereitgestellt. Es enthält
+die vollständigen, unveränderten und per SHA-256 geprüften Qt-Base- und
+PySide-Setup-Quellarchive der verwendeten Version, einschließlich Shiboken.
+`source-manifest.json` dokumentiert Herkunft und Prüfsummen. Das zusätzliche
+`-source.zip` enthält Anwendungscode, SVG und vollständige Paketierungswerkzeuge.
+Die zugehörigen Lizenz- und Attributionstexte werden in `licenses/` des
+Programmpakets übernommen; bloße Links ersetzen diese Beigaben nicht.
 
-Inno Setup wird nur zum Erstellen des Installers benötigt. Die jeweils aktuellen
-Bedingungen des Herstellers für die Nutzung des Compilers gelten unabhängig
-von der MIT-Lizenz dieses Projekts:
-[Inno Setup](https://jrsoftware.org/isinfo.php).
+Qt-/PySide6-DLLs bleiben als Dateien austauschbar. Es gibt keine Einschränkung
+der Änderung und des Reverse Engineering zum Debuggen solcher Bibliotheksänderungen.
+[Quellen und Austausch-Anleitung](docs/library-replacement.md).
+**Beide Quellarchive gehören zu jedem öffentlichen Binärrelease.**
+
+## Separat heruntergeladene Programme
+
+FFmpeg und MKVToolNix sind **nicht im Installer oder Portable-ZIP enthalten**.
+Nach ausdrücklichem Klick lädt der Assistent unveränderte Originalarchive von
+den festgelegten Anbietern direkt zum Nutzer herunter. Originaldokumentation
+und Lizenzdateien bleiben erhalten. Die Programme laufen als externe Prozesse;
+die Anwendung bindet ihre Bibliotheken nicht ein.
+
+- **FFmpeg 9.0.2 Essentials von Gyan:** GPL-Build; Lizenzumfang und enthaltene
+  Bibliotheken richten sich nach genau diesem Build. FFmpeg ist nicht pauschal
+  immer nur LGPL. [Builds und Quellen](https://www.gyan.dev/ffmpeg/builds/),
+  [FFmpeg-Lizenzinformationen](https://ffmpeg.org/legal.html).
+- **MKVToolNix 103.0:** GPLv2; maßgeblich sind die Lizenztexte des Originalarchivs.
+  [Downloads](https://mkvtoolnix.download/downloads.html),
+  [Quellcode](https://mkvtoolnix.download/source.html).
+
+Downloadplan, Hersteller-URLs und SHA-256 stehen in
+`mkv_audio_converter/windows_tools.py`; `download-receipt.json` dokumentiert
+die Einrichtung. Wer diese Programme selbst mit einem Komplettpaket
+weiterverteilt, muss zusätzlich deren konkrete Weitergabebedingungen erfüllen.
+Eine öffentliche Kopie unseres Repositorys bündelt diese Programme nicht.
+
+## Entwicklungswerkzeuge und Rechtsumfang
+
+Inno Setup wird nur zum Erstellen des Installers verwendet; seine
+[Nutzungsbedingungen](https://jrsoftware.org/isinfo.php) gelten zusätzlich für
+die Verwendung des Compilers. Ein PyPI-Paket ist nicht allein deshalb Bestandteil
+der Laufzeit, weil es auf dem Buildrechner installiert ist.
+
+Softwarelizenzen regeln keine Rechte an den verarbeiteten Filmen und sind keine
+pauschale Zusage zu Marken- oder Codecpatentrechten in jeder Rechtsordnung.
+Diese technischen Maßnahmen und Quellenhinweise sind keine verbindliche
+rechtliche Einzelfallprüfung.
+
+## Maßgebliche Quellen
+
+- [Qt: LGPL-Pflichten](https://www.qt.io/development/open-source-lgpl-obligations)
+- [Qt Virtual Keyboard: kommerziell oder GPLv3](https://doc.qt.io/qt-6/qtvirtualkeyboard-index.html#licenses-and-attributions)
+- [Qt-Base-Quellen](https://download.qt.io/archive/qt/6.11/6.11.2/submodules/)
+- [Qt-for-Python-Quellen](https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.11.2-src/)
+- [KDE Breeze: Artwork-Lizenz](https://invent.kde.org/frameworks/breeze-icons/-/blob/master/COPYING-ICONS)
+- [OpenSSL 3.5.9](https://github.com/openssl/openssl/tree/openssl-3.5.9)
+- [PyInstaller-Ausnahme](https://pyinstaller.org/en/stable/license.html)

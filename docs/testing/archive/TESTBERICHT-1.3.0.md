@@ -20,7 +20,7 @@ OK (skipped=2)
 ```
 
 **86 erfolgreich, zwei native Windows-Tests auf Linux übersprungen.**
-[Gesamtes Testprotokoll](docs/tests-1.3.0.log).
+[Gesamtes Testprotokoll](logs/tests-1.3.0.log).
 
 Alle bisherigen GUI-, Metadaten-, Medien- und Rettungstests bestehen. Neu sind
 begrenzte gleichzeitige Pipe-Leser, hoher stdout/stderr-Durchsatz, Fortschritt,
@@ -55,7 +55,7 @@ verarbeitet:
 - Alle fünf benötigten Programme wurden gefunden und auf x64-PE-Kopf geprüft.
 - Die EXEs wurden **nicht unter Linux ausgeführt**.
 
-[Prüfbeleg mit URLs und Hashes](docs/windows-archive-validation.json).
+[Prüfbeleg mit URLs und Hashes](evidence/windows-archive-validation.json).
 Die Archive liegen nur in den lokalen Prüfdaten, nicht im Git-Repository oder
 im angebotenen Anwendungsquellpaket.
 
@@ -76,7 +76,7 @@ vorbereitet, aber noch nicht ausgeführt:
 - Stille Installation und Deinstallation mit Erhalt einer Test-Mediendatei
   und der gesonderten Werkzeugkonfiguration.
 
-Der Workflow [.github/workflows/windows.yml](.github/workflows/windows.yml)
+Der Workflow [.github/workflows/windows.yml](../../../.github/workflows/windows.yml)
 führt diese Schritte auf Windows x64 aus und stellt nur bei Erfolg die Pakete
 als Artefakte bereit. Der erste GitHub-Lauf brach vor den Tests bei der Werkzeugeinrichtung ab;
 siehe den folgenden Nachtrag.
@@ -127,7 +127,7 @@ OK (skipped=2)
 ```
 
 **88 erfolgreich, zwei native Windows-Tests übersprungen.**
-[Protokoll der korrigierten Fassung](docs/tests-windows-workflow-fix.log).
+[Protokoll der korrigierten Fassung](logs/tests-windows-workflow-fix.log).
 Die YAML-Struktur, vollständigen Action-Pins und Python-Syntax wurden ebenfalls
 geprüft. PowerShell-Transkripte und der vollständige Installer-Build sind erst
 im neuen Windows-Lauf ausführbar.
@@ -179,7 +179,7 @@ OK (skipped=2)
 ```
 
 **90 erfolgreich, zwei native Windows-Tests lokal übersprungen.**
-[Vollständiges Protokoll](docs/tests-windows-fileio-fix.log).
+[Vollständiges Protokoll](logs/tests-windows-fileio-fix.log).
 Der neue Stand muss nach Commit/Push nochmals über **Run workflow** auf `main`
 nativ geprüft werden. Ein erfolgreicher Installer-Build ist weiterhin nicht
 bestätigt.

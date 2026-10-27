@@ -22,6 +22,7 @@ OutputBaseFilename=MKVAudioConverter-{#AppVersion}-windows-x64-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile={#SourceRoot}\mkv_audio_converter\assets\icon.ico
 LicenseFile={#SourceRoot}\LICENSE
 CloseApplications=yes
 RestartApplications=no
@@ -42,9 +43,9 @@ Type: filesandordirs; Name: "{app}\_internal"
 Source: "{#SourceRoot}\dist\MKVAudioConverter\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\MKV Audio Converter"; Filename: "{app}\MKVAudioConverter.exe"
+Name: "{group}\MKV Audio Converter"; Filename: "{app}\MKVAudioConverter.exe"; IconFilename: "{app}\MKVAudioConverter.exe"; AppUserModelID: "Fry747.MKVAudioConverter"
 Name: "{group}\Deinstallieren"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\MKV Audio Converter"; Filename: "{app}\MKVAudioConverter.exe"; Tasks: desktopicon
+Name: "{autodesktop}\MKV Audio Converter"; Filename: "{app}\MKVAudioConverter.exe"; IconFilename: "{app}\MKVAudioConverter.exe"; AppUserModelID: "Fry747.MKVAudioConverter"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\MKVAudioConverter.exe"; Description: "MKV Audio Converter starten"; Flags: nowait postinstall skipifsilent

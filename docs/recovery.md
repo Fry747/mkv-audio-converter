@@ -1,4 +1,4 @@
-# Rettungsmodus – Version 1.2.0
+# Rettungsmodus – Version 1.3.0
 
 Der neue Modus kann eine **konvertierbare Rettungskopie** aus noch lesbaren
 Daten einer beschädigten MKV erzeugen. Er rekonstruiert keine verlorenen Bilder
@@ -128,7 +128,7 @@ ausgeschlossen. Auch diese Bytezahl ist keine exakte Film-Verlustdauer.
 
 Die Datei enthält keine Cluster-CRCs; die Nutzdaten sind dadurch nicht als
 fehlerfrei bewiesen. Der reale vollständige Probelauf und seine Prüfergebnisse
-werden separat in [TESTBERICHT-1.1.0.md](TESTBERICHT-1.1.0.md) dokumentiert.
+werden separat in [TESTBERICHT-1.1.0.md](testing/archive/TESTBERICHT-1.1.0.md) dokumentiert.
 
 ## CLI
 

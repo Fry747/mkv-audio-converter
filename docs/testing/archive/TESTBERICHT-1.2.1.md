@@ -11,7 +11,7 @@ OK
 ```
 
 **72 Tests erfolgreich, keine übersprungen.**
-[Protokoll](docs/tests-1.2.1.log).
+[Protokoll](logs/tests-1.2.1.log).
 
 ## Änderung
 

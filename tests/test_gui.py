@@ -106,6 +106,39 @@ class GuiTests(unittest.TestCase):
             worker.update_progress(value, phase)
         self.assertEqual(values, [.7, .7, .8])
 
+    def test_cancelled_job_resets_progress_after_worker_stops(self):
+        class CancellableWorker(Worker):
+            def run(self):
+                self.progress.emit(.63, 'Konvertieren')
+                self.cancel.wait(5)
+                self.progress.emit(.8, 'Temporäre Dateien entfernen')
+        window = Window()
+        self.addCleanup(window.close)
+        worker = CancellableWorker(parent=window)
+        with patch('mkv_audio_converter.runtime.windows', return_value=False):
+            window.begin(worker)
+        deadline = time.monotonic() + 3
+        while window.progress_bar.value() != 630 and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)
+        self.assertEqual(window.progress_bar.value(), 630)
+        window.cancel_job()
+        self.wait_for_idle(window)
+        self.assertEqual(window.progress_bar.value(), 0)
+        self.assertIn('Abgebrochen', window.phase.text())
+        self.assertFalse(window.cancel_button.isEnabled())
+        window.progress_changed(.95, 'Veraltete Meldung')
+        self.assertEqual(window.progress_bar.value(), 0)
+
+    def test_successful_job_keeps_completed_progress(self):
+        window = Window()
+        window.worker = Worker(parent=window)
+        window.progress_changed(1., 'Fertig')
+        window.finished()
+        self.assertEqual(window.progress_bar.value(), 1000)
+        self.assertNotIn('Abgebrochen', window.phase.text())
+        window.close()
+
     def test_source_damage_has_clear_status_and_detailed_report(self):
         worker = Worker(media=[SimpleNamespace(path=Path(native_path('/source.mkv')))], options=Options())
         states, reports, damaged = [], [], []
