@@ -24,7 +24,7 @@ können auf 5.1 reduziert werden.
 ## Windows
 
 Die [Releases](https://github.com/Fry747/mkv-audio-converter/releases) enthalten
-nach Freigabe den **Installer** und ein **portables ZIP**. Für öffentliche
+den **Installer** und ein **portables ZIP**. Für öffentliche
 Release-Downloads ist kein GitHub-Konto erforderlich.
 
 1. `MKVAudioConverter-1.3.0-windows-x64-setup.exe` installieren oder die portable

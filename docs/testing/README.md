@@ -44,8 +44,31 @@ Der Screenshot wurde mit dem aktuellen GUI-Code nach einer echten Konvertierung
 synthetischer Beispieldaten erzeugt. Er zeigt Version 1.3.0 und enthält keine
 privaten Medien. Die Windows-PE-Importtabellen der benötigten Qt-DLLs wurden
 geprüft; die entfernten Qt-Addons sind keine deren notwendigen Qt-Abhängigkeiten.
-Native CI und ein kurzer praktischer Nachtest der neuen Pakete stehen aus.
-Der frühere Windows-Erfolg wird nicht als Test des geänderten Pakets ausgegeben.
+
+## Bestätigter Freigabestand
+
+Commit `b7e050c9640d9ac5f05ea44c469c883e726515f8` bestand am 27. Oktober 2026
+[Windows-Lauf 40558340946](https://github.com/Fry747/mkv-audio-converter/actions/runs/40558340946):
+
+```text
+Ran 98 tests in 31.543s
+OK
+Frozen version, codecs, Unicode conversion, metadata and GUI startup OK
+Installer, installed CLI and non-destructive uninstall OK
+```
+
+Keine übersprungenen Tests. Der Build prüfte die Symbole der beiden EXEs und
+des Installers, die begrenzten Qt-Komponenten und die Lizenz-/Quellbeigaben.
+Der Nutzer bestätigte anschließend auch den praktischen Windows-Test dieses
+Standes. Eine bestimmte Windows-11-Buildnummer wurde nicht angegeben.
+
+Der abschließende Release-Commit ändert die Freigabedokumentation und ergänzt
+die Vorbereitung eines Release-Entwurfs samt Prüfsummen-/Archivkontrolle;
+der Anwendungscode und die Windows-Baukonfiguration bleiben unverändert.
+Der Tag `v1.3.0` löst einen weiteren vollständigen Windows-Lauf aus. Nur dessen
+erfolgreich geprüfte fünf Dateien werden gemeinsam in den Release-Entwurf
+übernommen. Der zugehörige Lauf wird in den Release-Notizen verlinkt; sein
+Ergebnis wird hier nicht vorweggenommen.
 
 ## Historische Nachweise
 

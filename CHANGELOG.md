@@ -1,6 +1,6 @@
 # Änderungen
 
-## 1.3.0 – Freigabe in Vorbereitung
+## 1.3.0 – 27. Oktober 2026
 
 - Windows-x64-Installer und portable ZIP mit Python-/Qt-Laufzeit.
 - Geprüfte Ersteinrichtung von FFmpeg und MKVToolNix im Benutzerprofil.

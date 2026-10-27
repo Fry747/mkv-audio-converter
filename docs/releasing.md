@@ -28,29 +28,43 @@ Historie umgeschrieben. Persönliche Testmedien liegen außerhalb des Repos.
 
 ## Version 1.3.0 veröffentlichen
 
-1. Änderungen separat reviewen, committen und pushen. Version 1.3.0 bleibt bis
-   zur Freigabe ungetaggt. `Run workflow` auf dem aktuellen `main` ausführen.
-2. Native Tests ohne unerwartete Skips, EXE-/Installer-Tests, Icon-Ressourcen,
-   Komponentenprüfung und Erzeugung der Lizenz-/Quellbeigaben müssen bestehen.
-3. Den neuen Installer/ZIP kurz auf Windows 11 prüfen: Symbol im Explorer,
-   Startmenü und Fenster; Abbruch bei teilweisem Fortschritt → nach Aufräumen
-   0 %; erfolgreiche Konvertierung bleibt bei 100 %. Der bisherige praktische
-   Test gilt für den Vorgängerstand und ersetzt diesen gezielten Nachtest nicht.
-4. Release-Notizen und aktuellen Prüfstand fertigstellen, den geprüften
-   Commit mit `v1.3.0` markieren und einen GitHub-Release erstellen.
-5. **Zusammen aus demselben geprüften Build hochladen:**
+1. Änderungen reviewen, committen und pushen. Der aktuelle praktische und native
+   Windows-Prüfstand ist in [testing/README.md](testing/README.md) dokumentiert.
+2. Den finalen Commit mit dem annotierten Tag `v1.3.0` markieren und den Tag
+   pushen. Er startet den vollständigen Windows-Build einschließlich Tests,
+   EXE-/Installerprüfungen, Icon- und Komponentenprüfung.
+3. Nach Erfolg bereitet der nachgelagerte Job `release-draft` einen Entwurf vor.
+   Er übernimmt ausschließlich die fünf Dateien aus demselben Workflow-Lauf:
    - `MKVAudioConverter-1.3.0-windows-x64-setup.exe`
    - `MKVAudioConverter-1.3.0-windows-x64-portable.zip`
    - `MKVAudioConverter-1.3.0-source.zip`
    - `MKVAudioConverter-1.3.0-third-party-sources.zip`
    - `SHA256SUMS.txt`
-6. Öffentlichen Download im abgemeldeten Browser prüfen. Das automatische
-   GitHub-Quellarchiv ersetzt die Qt-/PySide6-Quellbeigabe nicht. Release-Assets
-   später nicht still austauschen; Korrekturen erhalten eine neue Version.
+4. Die Kontrolle verlangt exakt diese fünf Dateien, vier gültige SHA-256-Werte,
+   intakte ZIPs, Projektquellen passend zum Tag sowie die gepinnten LGPL-Quellen.
+   Nach dem Upload werden alle fünf Dateien erneut heruntergeladen, nochmals
+   geprüft und byteweise mit dem Build verglichen. Der konkrete Lauf und Commit
+   werden den [Release-Notizen](releases/v1.3.0.md) angefügt.
+5. Der Job entfernt nach erfolgreicher Überprüfung ausschließlich das bekannte
+   veraltete Windows-Binärartefakt `12735821690` aus Lauf `40507148245`, falls
+   es noch vorhanden ist. Testprotokolle und der bestätigte neuere Build bleiben
+   erhalten. Alte Actions-Logs separat vor dem Sichtbarkeitswechsel prüfen.
+6. Unter Repository-Einstellungen → General → Danger Zone → Change visibility
+   das Repository öffentlich schalten. Die bestehenden Commit-Autorinformationen
+   werden mit veröffentlicht. Der Workflow hat keine Administrationsberechtigung
+   und kann die Sichtbarkeit nicht selbst ändern.
+7. Den vollständig geprüften Entwurf unter Releases öffnen und **Publish release**
+   wählen; Version 1.3.0 als aktuelle stabile Version anbieten. Den öffentlichen
+   Download im abgemeldeten Browser prüfen.
 
-Der Versions-Tag startet ebenfalls die CI. Falls dieser Lauf neue Pakete erzeugt,
-deren Tests und Prüfsummen prüfen; unterschiedliche Builds nicht vermischen.
-Es gibt keine automatische Veröffentlichung durch den Workflow.
+Der Build und die lokale Tag-Erstellung veröffentlichen keinen Release automatisch.
+Der Entwurfsjob erhält nur die dafür erforderlichen Contents-/Actions-Rechte;
+der Windows-Build behält Lesezugriff. Eine Wiederholung überschreibt bestehende
+Release-Dateien nicht stillschweigend. Bei einem abgebrochenen Upload den Entwurf
+prüfen und die fehlenden Dateien aus demselben Lauf ergänzen. Veröffentlichte
+Pakete nicht still austauschen; Korrekturen erhalten eine neue Version.
+
+Das automatische GitHub-Quellarchiv ersetzt die Qt-/PySide6-Quellbeigabe nicht.
 
 ## Lizenzen
 

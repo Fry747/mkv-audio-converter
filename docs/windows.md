@@ -160,15 +160,16 @@ falls der Lauf bereits vor den Tests abbricht. Ein erneuter Versuch nach einer
 Codekorrektur muss über **Run workflow** mit dem aktuellen Branch gestartet werden:
 **Re-run failed jobs** wiederholt den alten Commit einschließlich des alten Fehlers.
 
-Es wird kein GitHub-Release automatisch veröffentlicht.
-
-Der Nutzer hat Installation, Ersteinrichtung, Bedienung, echte Medien, Fehlerfälle
-und Verteilung auf Windows 11 erfolgreich geprüft (27. Oktober 2026). Änderungen
-an Fortschrittsanzeige, Symbolen und Paketinhalt erfordern einen erneuten Build
-und einen kurzen praktischen Nachtest vor der Freigabe. Ein Linux-
-Testlauf oder ein erfolgreich entpacktes EXE-Archiv ist kein Nachweis eines
-funktionierenden Windows-Programms. Der aktuelle Prüfstand steht im
+Installation, Ersteinrichtung, Bedienung, echte Medien, Fehlerfälle und
+Verteilung wurden auf Windows 11 erfolgreich geprüft (27. Oktober 2026).
+Auch der anschließende Nachtest mit korrigierter Fortschrittsanzeige,
+Notensymbolen und den neuen Paketen wurde vom Nutzer bestätigt. Der zugehörige
+native Windows-Lauf bestand alle 98 Tests sowie die EXE- und Installerprüfungen.
+Der aktuelle Prüfstand und die genaue Zuordnung stehen im
 [Prüfstand 1.3.0](testing/README.md).
+
+Ein Versions-Tag erzeugt nach erfolgreichem Build einen **Release-Entwurf** mit
+allen fünf geprüften Dateien. Der Workflow veröffentlicht ihn nicht automatisch.
 
 Die zunächst erzeugten EXEs sind unsigniert. Für öffentliche Downloads ist
 Authenticode-Signierung der beiden Programm-EXEs und danach des Installers
