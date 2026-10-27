@@ -3,6 +3,14 @@
 Prüfdatum: **27. Oktober 2026**. Lokaler Host: **Linux**, Python
 3.14.8, PySide6 6.11.2.
 
+
+**Aktueller Stand nach dem zweiten neuen Windows-Lauf:** Werkzeugeinrichtung,
+Windows-Prozessabbruch und kollisionsfreies Veröffentlichen bestanden in CI.
+Die dort gefundenen Datei-/Pfad-/Zeilenendenfehler sind lokal korrigiert und
+mit 92 Tests geprüft (90 erfolgreich, zwei native Windows-Tests lokal
+übersprungen). Ein nativer Lauf der neuen Korrektur und der Installer-Build
+stehen weiterhin aus. Die Abschnitte unten dokumentieren die einzelnen Stände.
+
 ## Tatsächlich ausgeführte Tests
 
 ```text
@@ -123,3 +131,55 @@ OK (skipped=2)
 Die YAML-Struktur, vollständigen Action-Pins und Python-Syntax wurden ebenfalls
 geprüft. PowerShell-Transkripte und der vollständige Installer-Build sind erst
 im neuen Windows-Lauf ausführbar.
+
+
+## Nachtrag: Windows-Dateisynchronisierung, Pfad-Aliase und Zeilenenden
+
+Das bereitgestellte Archiv `logs_109780680845.zip` enthält einen neuen Lauf mit
+dem korrekten Commit `c3e7b3d`. Werkzeugeinrichtung und Versions-/Codecprüfung
+bestanden, ebenso die nativen Tests für Job-Object-Prozessabbruch und
+kollisionsfreies Windows-Umbenennen. Der Testschritt meldete:
+
+```text
+Ran 90 tests in 28.742s
+FAILED (failures=5, errors=9)
+```
+
+Die Befunde lassen sich drei Ursachen zuordnen:
+
+1. Acht Fehler und die beiden GUI-Fehlschläge gingen auf `os.fsync` einer mit
+   `rb` geöffneten fertigen Ausgabe zurück. Die Medienverarbeitung war an dieser
+   Stelle bereits abgeschlossen und geprüft. Windows benötigt zum Flushen einen
+   schreibfähigen Handle; `r+b` öffnet die private Ausgabe ohne Kürzen neu.
+   Derselbe Fehler im privaten JSON-Rettungsbericht wurde ebenfalls korrigiert.
+   Die Originaldateien werden weiterhin ausschließlich lesend geöffnet.
+   [Microsoft: FlushFileBuffers benötigt GENERIC_WRITE](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers).
+2. Der Installationstest mischte einen kurzen Windows-Pfad (`RUNNER~1`) mit
+   dem von `find_tools` aufgelösten Langnamen (`runneradmin`). `relative_to`
+   vergleicht Pfade lexikalisch und erkannte den gemeinsamen Ordner deshalb
+   nicht. Installationsbasis und temporärer Arbeitsordner werden jetzt ebenfalls
+   kanonisch aufgelöst. Der bestehende Test reproduziert diesen Fehler auf Linux
+   über einen Pfad-Alias; unter Windows prüft er den echten Temp-Pfad.
+3. Drei fehlgeschlagene Untertests betrafen zusätzliche Leerzeilen: CR und LF
+   wurden einzeln als Trennzeichen behandelt. Der Runner verarbeitet CRLF jetzt
+   als einen Zeilenabschluss, auch über Lesegrenzen hinweg. Einzelne CR-Zeichen
+   für Fortschrittsupdates und tatsächlich leere Zeilen bleiben erhalten.
+
+Vor der Produktkorrektur schlugen fünf gezielte Regressionstests auch lokal
+fehl (`failures=3, errors=3`, einschließlich Untertests). Die Medien- und
+Rettungstests erzwingen dazu auch auf Linux schreibfähige fsync-Deskriptoren.
+Zwei neue Tests prüfen echte CRLF-Prozessausgabe und deterministisch zwischen
+CR und LF geteilte Leseblöcke; bestehende Erwartungen wurden nicht gelockert.
+
+Vollständiger Linux-Testlauf nach der Korrektur:
+
+```text
+Ran 92 tests in 47.624s
+OK (skipped=2)
+```
+
+**90 erfolgreich, zwei native Windows-Tests lokal übersprungen.**
+[Vollständiges Protokoll](docs/tests-windows-fileio-fix.log).
+Der neue Stand muss nach Commit/Push nochmals über **Run workflow** auf `main`
+nativ geprüft werden. Ein erfolgreicher Installer-Build ist weiterhin nicht
+bestätigt.

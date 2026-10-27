@@ -212,6 +212,7 @@ class Runner:
         except OSError as e:
             raise ConversionError(f"{command[0]} konnte nicht gestartet werden: {e}") from e
         buffers = {proc.stdout: b"", proc.stderr: b""}
+        after_cr = {pipe: False for pipe in buffers}
 
         def emit(raw: bytes, stdout: bool):
             nonlocal capture_size
@@ -260,8 +261,14 @@ class Runner:
                 if buffers[pipe]:
                     emit(buffers[pipe], pipe is proc.stdout)
                 buffers.pop(pipe)
+                after_cr.pop(pipe)
                 return
-            parts = re.split(b"[\r\n]", buffers[pipe] + block)
+            # CRLF is one delimiter, including when split across reads. Keep
+            # standalone CR progress updates and genuine empty lines intact.
+            if after_cr[pipe] and block.startswith(b"\n"):
+                block = block[1:]
+            after_cr[pipe] = block.endswith(b"\r")
+            parts = re.split(b"\r\n|\r|\n", buffers[pipe] + block)
             buffers[pipe] = parts.pop()
             if len(buffers[pipe]) > 8 * 1024 * 1024:
                 raise ConversionError("Ungültig lange Werkzeugausgabe.")
@@ -870,7 +877,9 @@ def convert(media: Media, options: Options, runner: Runner,
         runner.check_cancel()
         if signature(media.path) != media.signature:
             raise ConversionError("Original wurde während der Verarbeitung verändert; Ausgabe verworfen.")
-        with output.open("rb") as file:
+        # Windows' fsync/_commit requires a writable handle. This is our
+        # private completed output; r+b preserves its bytes and length.
+        with output.open("r+b") as file:
             os.fsync(file.fileno())
         final = publish(output, media.path, destination)
         progress(1., "Fertig")

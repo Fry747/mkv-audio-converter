@@ -75,6 +75,36 @@ class WindowsSupportTests(unittest.TestCase):
         self.assertEqual(lines, ['one', 'two', 'last'])
         self.assertFalse(any(t.name == 'mkv-tool-pipe' for t in threading.enumerate()))
 
+    def test_crlf_output_preserves_real_blank_lines_and_progress(self):
+        for threaded in (False, True) if sys.platform != 'win32' else (True,):
+            with self.subTest(threaded=threaded):
+                lines = []
+                output = Runner(threaded_io=threaded).run([sys.executable, '-c',
+                    'import os;os.write(1,b"one\\r\\n\\r\\ntwo\\rtail")'],
+                    capture=True, on_line=lines.append)
+                self.assertEqual(output, 'one\n\ntwo\ntail\n')
+                self.assertEqual(lines, ['one', '', 'two', 'tail'])
+
+    def test_crlf_split_across_reads_is_one_line_ending(self):
+        chunks = [b'one\r', b'\n', b'\r', b'\ntw', b'o\r', b'tail']
+        class SplitPipes:
+            def __init__(self, pipes):
+                self.stdout, self.stderr = pipes
+            def blocks(self, check):
+                for chunk in chunks:
+                    check()
+                    yield self.stdout, chunk
+                yield self.stdout, b''
+                yield self.stderr, b''
+            def close(self):
+                pass
+        lines = []
+        with patch('mkv_audio_converter.core.ThreadedPipes', SplitPipes):
+            output = Runner(threaded_io=True).run([sys.executable, '-c', 'pass'],
+                                                 capture=True, on_line=lines.append)
+        self.assertEqual(output, 'one\n\ntwo\ntail\n')
+        self.assertEqual(lines, ['one', '', 'two', 'tail'])
+
     def test_threaded_concurrent_pipe_pressure_is_drained(self):
         size = 20000
         raw = Runner(threaded_io=True).run([sys.executable, '-c',
@@ -145,6 +175,12 @@ class WindowsSupportTests(unittest.TestCase):
     def test_install_is_transactional_and_retains_vendor_licenses(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)
+            if sys.platform != 'win32':
+                # find_tools resolves paths. Simulate a Windows short/long
+                # alias on POSIX so inconsistent receipt paths fail here too.
+                alias = base/'profile-alias'
+                alias.symlink_to(base, target_is_directory=True)
+                base = alias
             previous = base / 'tools.json'
             previous.write_text('{"previous": true}')
             def fake_download(p, target, runner, progress):

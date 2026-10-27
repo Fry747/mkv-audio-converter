@@ -170,6 +170,8 @@ def install(runner, progress=lambda *_: None):
         raise ValueError('Die automatische Einrichtung unterstützt Windows x64 (Intel/AMD).')
     base = runtime.user_data_dir() / 'tools'
     base.mkdir(parents=True, exist_ok=True)
+    # Match find_tools' canonical paths (Windows short names may expand).
+    base = base.resolve(strict=True)
     # Whole vendor archives (including licenses and DLLs) are kept, separately
     # from our app. No redistributing tool executables in the app installer.
     if shutil.disk_usage(base).free < 3 * 1024**3:
@@ -178,7 +180,7 @@ def install(runner, progress=lambda *_: None):
     published = activated = False
     try:
         with tempfile.TemporaryDirectory(prefix='.setup-', dir=base) as temp:
-            work = Path(temp)
+            work = Path(temp).resolve(strict=True)
             unpacked = work / 'ready'
             unpacked.mkdir()
             for i, package in enumerate(PACKAGES):

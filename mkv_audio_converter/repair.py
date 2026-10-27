@@ -364,7 +364,8 @@ def recover(plan: RepairPlan, options: Options, runner: Runner, *, accept_loss: 
             report['output'] = str(final)
             temp_report = work / 'report.json'
             temp_report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf8')
-            with temp_report.open('rb') as file:
+            # Flush the private report using a writable Windows handle too.
+            with temp_report.open('r+b') as file:
                 os.fsync(file.fileno())
             linked = False
             report_signature = signature(temp_report)

@@ -8,11 +8,21 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from mkv_audio_converter.core import (
     ConversionError, Options, Runner, TOOLS, check_tools, convert, extract_xml,
     inspect, sanitize_tags, xml_key,
 )
+
+
+_real_fsync = os.fsync
+
+
+def writable_fsync(fd):
+    """Enforce Windows' writable-handle requirement on POSIX too."""
+    os.write(fd, b'')  # zero bytes: verify access without changing contents
+    _real_fsync(fd)
 
 
 def command(*args):
@@ -167,7 +177,8 @@ class MediaTests(unittest.TestCase):
         self.assertIsNone(result.output)
 
     def test_quick_mode_still_checks_audio(self):
-        result = convert(inspect(self.single, self.runner), Options(self.root / 'quick', deep_verify=False), self.runner)
+        with patch('os.fsync', side_effect=writable_fsync):
+            result = convert(inspect(self.single, self.runner), Options(self.root / 'quick', deep_verify=False), self.runner)
         self.assertTrue(any('deaktiviert' in c for c in result.checks))
         self.assertTrue(any('decodiert' in c for c in result.checks))
 

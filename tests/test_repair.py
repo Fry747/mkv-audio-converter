@@ -8,10 +8,20 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from mkv_audio_converter.core import Cancelled, ConversionError, Media, Options, Runner, Track, inspect, signature
 from mkv_audio_converter.repair import (CLUSTER, InvalidEBML, analyze, block_frames, element,
                                        recover, validate_cluster, vint, write_candidate)
+
+
+_real_fsync = os.fsync
+
+
+def writable_fsync(fd):
+    """Enforce Windows' writable-handle requirement on POSIX too."""
+    os.write(fd, b'')  # zero bytes: verify access without changing contents
+    _real_fsync(fd)
 
 
 def size_vint(value):
@@ -160,7 +170,8 @@ class RecoveryIntegrationTests(unittest.TestCase):
             before = hashlib.sha256(source.read_bytes()).digest()
             plan = analyze(inspect(source, runner), runner)
             self.assertTrue(plan.damage)
-            result = recover(plan, Options(output_dir=root / 'out'), runner, accept_loss=True)
+            with patch('os.fsync', side_effect=writable_fsync):
+                result = recover(plan, Options(output_dir=root / 'out'), runner, accept_loss=True)
             self.assertTrue(result.recovered)
             self.assertIn('_recovered_ac3', result.output.name)
             self.assertTrue(result.warnings)
