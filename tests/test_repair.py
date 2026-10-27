@@ -145,6 +145,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
             proc = subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i',
                 'testsrc2=size=128x72:rate=24:duration=3', '-f', 'lavfi', '-i',
                 'sine=sample_rate=48000:duration=3', '-c:v', 'ffv1', '-c:a', 'dca', '-strict', '-2',
+                '-metadata:s:a:0', 'title=Deutsch DTS',
                 '-cluster_time_limit', '500', str(source)], capture_output=True)
             if proc.returncode:
                 self.skipTest('DTS-Testencoder fehlt')
@@ -168,7 +169,11 @@ class RecoveryIntegrationTests(unittest.TestCase):
             self.assertGreater(report['excluded_bytes'], 0)
             self.assertFalse(report['video_fully_decoded'])
             self.assertEqual(hashlib.sha256(source.read_bytes()).digest(), before)
-            self.assertFalse(inspect(result.output, runner).dts_tracks)
+            target = inspect(result.output, runner)
+            self.assertFalse(target.dts_tracks)
+            self.assertEqual(next(t for t in target.tracks if t.type == 'audio').properties['track_name'],
+                             'Deutsch AC3')
+            self.assertTrue(any('Deutsch DTS' in c and 'Deutsch AC3' in c for c in report['checks']))
             self.assertFalse(list((root / 'out').glob('.mkv-audio-converter-*')))
             result2 = recover(plan, Options(output_dir=root / 'out'), runner, accept_loss=True)
             self.assertNotEqual(result.output, result2.output)

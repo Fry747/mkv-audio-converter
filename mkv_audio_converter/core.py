@@ -321,10 +321,51 @@ def inspect(path: Path, runner: Runner) -> Media:
     return Media(path, data, tracks, before)
 
 
+# Delimiters include underscores used in release-style names. Unicode letters
+# and digits remain word characters so DTS inside a word is never replaced.
+_DTS_TITLE = re.compile(r"""
+    (?<![^\W_])DTS
+    (?:
+        [ ._-]+HD(?:[ ._-]+(?:Master[ ._-]+Audio|MA|
+                             High[ ._-]+Resolution(?:[ ._-]+Audio)?|HRA|HR))?
+        |[ ._-]+ES(?:[ ._-]+(?:Discrete|Matrix))?
+        |[ ._:\-]+X
+        |[ ._-]+(?:96[/ ._-]24|Express|Core|Digital[ ._-]+Surround)
+    )?
+    (?![^\W_])
+    (?: (?P<separator>[ ._-]+)(?P<layout>[1-9]\.[01](?:\.[1-9])?)
+        (?![^\W_]|\.\d)
+    )?
+""", re.IGNORECASE | re.VERBOSE)
+
+
+def converted_track_name(track: Track) -> str:
+    """Update explicit DTS labels only on converted audio tracks.
+
+    Keep surrounding language/descriptive text and separators verbatim. Only
+    an immediately attached layout is changed during the known >6 -> 5.1
+    downmix. Do not guess a channel layout from channel count otherwise, or
+    invent a title/codec suffix when no DTS label was present.
+    """
+    name = track.properties.get("track_name", "")
+    if not track.dts:
+        return name
+
+    def replacement(match):
+        layout = match["layout"]
+        if layout is None:
+            return "AC3"
+        if track.channels > 6:
+            layout = "5.1"
+        return "AC3" + match["separator"] + layout
+
+    return _DTS_TITLE.sub(replacement, name)
+
+
 def track_options(track: Track, tid: int = 0) -> list[str]:
     p = track.properties
     args = ["--language", f"{tid}:{p.get('language_ietf', p.get('language', 'und'))}",
-            "--track-name", f"{tid}:{p.get('track_name', '')}"]
+            "--track-name", f"{tid}:{converted_track_name(track)}"]
     for key, (option, _, default) in FLAG_OPTIONS.items():
         if key in p or key in ("default_track", "forced_track", "enabled_track"):
             args += [option, f"{tid}:{int(p.get(key, default))}"]
@@ -444,7 +485,7 @@ def restore_metadata(media: Media, output: Path, work: Path, runner: Runner,
         else:
             args += ["--delete", "language-ietf"]
         if "track_name" in p:
-            args += ["--set", f"name={p['track_name']}"]
+            args += ["--set", f"name={converted_track_name(track)}"]
         else:
             args += ["--delete", "name"]
         for key, (_, prop, default) in FLAG_OPTIONS.items():
@@ -472,8 +513,9 @@ def metadata_check(source: Media, target: Media, chapters: str, tags: str,
         if old.type != new.type or b.get("codec_id") != codec or old.uid != new.uid:
             raise ConversionError(f"Ergebnisprüfung: Spurreihenfolge/Codec/UID abweichend (ID {old.id}).")
         for key, default in (("language", "eng"), ("language_ietf", None), ("track_name", "")):
-            if a.get(key, default) != b.get(key, default):
-                raise ConversionError(f"Ergebnisprüfung: {key} verändert (ID {old.id}).")
+            expected = converted_track_name(old) if key == "track_name" else a.get(key, default)
+            if expected != b.get(key, default):
+                raise ConversionError(f"Ergebnisprüfung: {key} weicht vom erwarteten Wert ab (ID {old.id}).")
         for key, (_, _, default) in FLAG_OPTIONS.items():
             if a.get(key, default) != b.get(key, default):
                 raise ConversionError(f"Ergebnisprüfung: Flag {key} verändert (ID {old.id}).")
@@ -498,9 +540,15 @@ def metadata_check(source: Media, target: Media, chapters: str, tags: str,
         a, b = old.properties.get("minimum_timestamp"), new.properties.get("minimum_timestamp")
         if a is not None and b is not None and abs(a - b) > 2_000_000:
             raise ConversionError(f"Ergebnisprüfung: Startzeit verändert (ID {old.id}).")
-    return ["Spurreihenfolge, Codecs, UIDs, Sprache, Titel und Flags geprüft",
-            "Kapitel, beschreibende Tags, Filmtitel und Anhang-Metadaten geprüft",
-            "Verfügbare Startzeitstempel geprüft (Toleranz 2 ms)"]
+    checks = ["Spurreihenfolge, Codecs, UIDs, Sprache, erwartete Spurtitel und Flags geprüft",
+              "Kapitel, beschreibende Tags, Filmtitel und Anhang-Metadaten geprüft",
+              "Verfügbare Startzeitstempel geprüft (Toleranz 2 ms)"]
+    for track in source.tracks:
+        old_name = track.properties.get("track_name", "")
+        new_name = converted_track_name(track)
+        if old_name != new_name:
+            checks.append(f"Spurtitel angepasst (ID {track.id}): {old_name!r} → {new_name!r}")
+    return checks
 
 
 def stream_map(media: Media, runner: Runner) -> dict[int, int]:
@@ -692,6 +740,10 @@ def convert(media: Media, options: Options, runner: Runner,
             base, width = .15 + .50 * pos / len(media.dts_tracks), .50 / len(media.dts_tracks)
             encoded = work / f"ac3-{track.id}.mka"
             progress(base, label + " → AC3")
+            old_name = track.properties.get("track_name", "")
+            new_name = converted_track_name(track)
+            if new_name != old_name:
+                runner.log(f"Spurtitel (ID {track.id}): {old_name!r} → {new_name!r}")
             # Copy timestamps (no start_at_zero) and keep CodecDelay in MKA.
             # aresample fills timestamp gaps without continuous clock stretching.
             args: list[str | Path] = ["ffmpeg", "-hide_banner", "-nostdin", "-v", "warning", "-n"]

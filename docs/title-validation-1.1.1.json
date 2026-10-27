@@ -1,0 +1,33 @@
+{
+  "source": "TEST_MKV_02.mkv",
+  "test_scope": "four_second_audio_only_stream_copy_excerpt",
+  "original_source_signature_unchanged": true,
+  "excerpt_sha256_unchanged": true,
+  "source_channels": [
+    7,
+    7
+  ],
+  "output_channels": [
+    6,
+    6
+  ],
+  "source_titles": [
+    "DTS-ES.6.1.Warner.Fixed.x264-Xell",
+    "English DTS-ES 6.1"
+  ],
+  "output_titles": [
+    "AC3.5.1.Warner.Fixed.x264-Xell",
+    "English AC3 5.1"
+  ],
+  "checks": [
+    "Spurreihenfolge, Codecs, UIDs, Sprache, erwartete Spurtitel und Flags geprüft",
+    "Kapitel, beschreibende Tags, Filmtitel und Anhang-Metadaten geprüft",
+    "Verfügbare Startzeitstempel geprüft (Toleranz 2 ms)",
+    "Spurtitel angepasst (ID 0): 'DTS-ES.6.1.Warner.Fixed.x264-Xell' → 'AC3.5.1.Warner.Fixed.x264-Xell'",
+    "Spurtitel angepasst (ID 1): 'English DTS-ES 6.1' → 'English AC3 5.1'",
+    "Alle Audio-/Video-Paketzeitstempel gelesen; AC3-Start und Ende geprüft",
+    "Kopierte Spuren: SHA-256 der Pakete und alle PTS geprüft",
+    "Anhänge: 0 Inhalte mit SHA-256 geprüft",
+    "Alle erzeugten AC3-Spuren vollständig fehlerfrei decodiert"
+  ]
+}

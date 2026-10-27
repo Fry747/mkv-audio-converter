@@ -1,7 +1,8 @@
 # MKV Audio Converter
 
-Version **1.1.0** · Optionaler Rettungsmodus für beschädigte MKVs mit
-Verlustbericht und ausdrücklicher Freigabe. Bedienung und Grenzen:
+Version **1.1.1** · Konvertierte Tonspuren erhalten passende AC3-Spurtitel.
+Optionaler Rettungsmodus für beschädigte MKVs mit Verlustbericht und
+ausdrücklicher Freigabe. Bedienung und Grenzen:
 [RETTUNGSMODUS.md](RETTUNGSMODUS.md). Die Fehleranalyse von 1.0.1 bleibt unter
 [FEHLERANALYSE.md](FEHLERANALYSE.md) erhalten.
 
@@ -127,7 +128,8 @@ aus unterschiedlichen Ordnern. Vorhandene Dateien werden niemals ersetzt.
    explizites `--track-order` setzt jede neue AC3-Spur an die Position ihrer
    DTS-Vorgängerspur. **FFmpeg schreibt niemals das Video. Kein Video-Reencoding.**
 5. `mkvpropedit` stellt auf der temporären Ausgabe ursprüngliche Track-UIDs,
-   Sprachen, Titel und Flags wieder her. Kapitel und Tags werden separat als
+   Sprachen und Flags wieder her. Spurtitel konvertierter DTS-Spuren werden
+   wie unten beschrieben angepasst. Kapitel und Tags werden separat als
    XML übernommen, damit UID-Verweise auch bei automatischer UID-Neuvergabe
    durch MKVToolNix korrekt bleiben. Kapitel-Spurnummern werden bei Bedarf
    auf die entsprechende Ausgabespur abgebildet.
@@ -136,11 +138,41 @@ aus unterschiedlichen Ordnern. Vorhandene Dateien werden niemals ersetzt.
 
 Erhalten bleiben Spurreihenfolge, Video, nicht konvertierte Audiospuren,
 Untertitel, Anhänge, Kapitel, Filmtitel, beschreibende Tags, Track-UIDs,
-ISO- und IETF-Sprachen, Spurtitel sowie Default-, Forced- und Enabled-Flags.
+ISO- und IETF-Sprachen sowie Default-, Forced- und Enabled-Flags.
 Vorhandene Commentary-, Original-, Hearing-impaired-, Visual-impaired- und
 Text-description-Flags werden ebenfalls übernommen.
-Ein Titel wie „Deutsch DTS“ bleibt bewusst unverändert; die Codec-ID ist
-anschließend AC3. Veraltete technische DTS-Tags wie BPS/DURATION/ENCODER und
+
+### Spurtitel automatisch anpassen
+
+Bei konvertierten DTS-Tonspuren werden eigenständige DTS-Bezeichnungen im
+Spurtitel durch **AC3** ersetzt, unabhängig von Groß-/Kleinschreibung.
+Erkannt werden unter anderem DTS, DTS-ES (auch Discrete/Matrix), DTS-HD,
+DTS-HD MA/Master Audio, DTS-HD HR/HRA/High Resolution Audio, DTS:X, DTS 96/24,
+DTS Express und DTS Core. Leerzeichen, Punkte, Bindestriche und Unterstriche
+als Trenner werden unterstützt.
+
+Sprachen, Kommentare und sonstiger Text bleiben erhalten. Eine direkt auf
+den Codec folgende Kanalangabe wird beim Downmix von mehr als sechs Kanälen
+auf **5.1** angepasst. Sonst bleibt die vorhandene Kanalangabe erhalten; aus
+der bloßen Kanalzahl wird keine neue Anordnung geraten. Beispiele:
+
+| Ursprünglicher Titel | Neuer Titel |
+| --- | --- |
+| `DTS-ES.6.1.Warner.Fixed.x264-Xell` (7 Kanäle) | `AC3.5.1.Warner.Fixed.x264-Xell` |
+| `English DTS-ES 6.1` (7 Kanäle) | `English AC3 5.1` |
+| `Deutsch DTS-HD MA 5.1 (Kommentar)` | `Deutsch AC3 5.1 (Kommentar)` |
+| `English` oder leerer Titel | unverändert |
+
+Dies gilt automatisch für GUI, CLI und Rettungsmodus. Jede Änderung erscheint
+im Protokoll und im JSON-Prüfbericht mit altem und neuem Titel. Die
+Ergebnisprüfung vergleicht den tatsächlichen Titel mit dem erwarteten neuen
+Titel. Nicht konvertierte Spuren und Titel ohne erkennbare DTS-Bezeichnung
+bleiben unverändert. Bereits erzeugte MKVs werden nicht nachträglich geändert;
+die Originaldatei muss für angepasste Titel erneut konvertiert werden.
+
+### Weitere Metadaten
+
+Veraltete technische DTS-Tags wie BPS/DURATION/ENCODER und
 Track-Statistiken der ersetzten Spuren werden entfernt. MKVToolNix darf
 ergänzende, aus vorhandenen Sprachangaben abgeleitete IETF-Felder in Kapitel-
 und Tag-XML hinzufügen. Containerdatum, Muxerkennung und Segment-UID können sich
@@ -251,6 +283,7 @@ Konverter sind diese beiden Encoder nicht nötig. GUI-Tests werden ohne PySide6
 
 Getestete Umgebung und bisherige Prüfergebnisse: [TESTBERICHT.md](TESTBERICHT.md).
 Die Erweiterung 1.1.0 hat einen eigenen [Testbericht](TESTBERICHT-1.1.0.md).
+Prüfung der Spurtitelanpassung: [Testbericht 1.1.1](TESTBERICHT-1.1.1.md).
 
 ## Projektaufbau
 

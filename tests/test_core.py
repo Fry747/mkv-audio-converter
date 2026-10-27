@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from mkv_audio_converter.core import (
     Cancelled, ConversionError, Media, Options, Progress, Runner, SourceDamageError, Track, convert, discover,
-    publish, remux_command, sanitize_tags, signature, xml_difference, xml_key,
+    converted_track_name, metadata_check, publish, remux_command, sanitize_tags, signature, xml_difference, xml_key,
 )
 
 
@@ -42,6 +42,71 @@ class CoreTests(unittest.TestCase):
         cmd = remux_command(media, {4: Path("/one.mka")}, Path("/out.mkv"))
         self.assertIn("--no-audio", cmd)
         self.assertNotIn("--audio-tracks", cmd)
+
+    def test_converted_titles_keep_language_and_release_text(self):
+        cases = [
+            ("DTS-ES.6.1.Warner.Fixed.x264-Xell", 7, "AC3.5.1.Warner.Fixed.x264-Xell"),
+            ("English DTS-ES 6.1", 7, "English AC3 5.1"),
+            ("Deutsch DTS 5.1 (Kommentar)", 6, "Deutsch AC3 5.1 (Kommentar)"),
+            ("日本語 DTS-HD MA 7.1 / Français", 8, "日本語 AC3 5.1 / Français"),
+            ("English_DTS-HD_MA_7.1_Original", 8, "English_AC3_5.1_Original"),
+            ("DTS-ES.6.1 / Release 6.1", 7, "AC3.5.1 / Release 6.1"),
+            ("DTS:X 7.1.4", 12, "AC3 5.1"),
+        ]
+        for name, channels, expected in cases:
+            with self.subTest(name=name):
+                original = track(1, track_name=name, audio_channels=channels)
+                self.assertEqual(converted_track_name(original), expected)
+                self.assertEqual(original.properties["track_name"], name)
+
+    def test_recognized_dts_profiles_and_case(self):
+        for label in ("DTS", "dts-es", "DTS ES Discrete", "DTS-ES Matrix",
+                      "DTS-HD", "dts-hd ma", "DTS HD Master Audio", "DTS-HD HRA",
+                      "DTS-HD HR", "DTS-HD High Resolution Audio", "DTS:X",
+                      "DTS-96/24", "DTS Express", "DTS Core", "DTS Digital Surround"):
+            with self.subTest(label=label):
+                self.assertEqual(converted_track_name(track(1, track_name=f"English ({label})")),
+                                 "English (AC3)")
+
+    def test_titles_without_explicit_dts_labels_are_not_invented(self):
+        for name in ("", "English", "Deutsch – Hörfassung", "ADTS", "DTSync", "préDTS", "DTS日本語"):
+            with self.subTest(name=name):
+                self.assertEqual(converted_track_name(track(1, track_name=name)), name)
+        self.assertEqual(converted_track_name(track(1)), "")
+
+    def test_other_tracks_keep_dts_wording(self):
+        for kind, codec in (("audio", "A_AC3"), ("subtitles", "S_TEXT/UTF8"), ("video", "V_AV1")):
+            with self.subTest(kind=kind):
+                original = track(1, kind, codec, track_name="English DTS-HD MA 7.1")
+                self.assertEqual(converted_track_name(original), "English DTS-HD MA 7.1")
+
+    def test_only_downmix_changes_attached_channel_label(self):
+        for name, channels, expected in (("DTS 2.1", 3, "AC3 2.1"),
+                                         ("DTS 3.0", 3, "AC3 3.0"),
+                                         ("DTS 4.0", 4, "AC3 4.0"),
+                                         ("DTS-HD MA", 8, "AC3")):
+            with self.subTest(name=name):
+                self.assertEqual(converted_track_name(track(1, track_name=name, audio_channels=channels)), expected)
+
+    def test_remux_uses_converted_title(self):
+        media = Media(Path("/input.mkv"), {},
+                      (track(1, track_name="English DTS-ES 6.1", audio_channels=7),), (0, 0, 0, 0))
+        cmd = remux_command(media, {1: Path("/ac3.mka")}, Path("/out.mkv"))
+        self.assertEqual(cmd[cmd.index("--track-name") + 1], "0:English AC3 5.1")
+
+    def test_title_validation_accepts_only_expected_output(self):
+        old = track(1, track_name="English DTS-ES 6.1", audio_channels=7)
+        source = Media(Path("/input.mkv"), {"container": {}}, (old,), (0, 0, 0, 0))
+        def target(name):
+            new = track(1, codec="A_AC3", track_name=name, audio_channels=6,
+                        audio_sampling_frequency=48000)
+            return Media(Path("/output.mkv"), {"container": {}}, (new,), (0, 0, 0, 0))
+        with patch("mkv_audio_converter.core.extract_xml", return_value=""):
+            checks = metadata_check(source, target("English AC3 5.1"), "", "", Runner())
+            self.assertTrue(any("English DTS-ES 6.1" in c and "English AC3 5.1" in c for c in checks))
+            for wrong in ("English DTS-ES 6.1", "English AC3 6.1", "Deutsch AC3 5.1"):
+                with self.subTest(wrong=wrong), self.assertRaisesRegex(ConversionError, "track_name"):
+                    metadata_check(source, target(wrong), "", "", Runner())
 
     def test_tag_cleanup_keeps_descriptive_and_unrelated_tags(self):
         raw = """<Tags><Tag><Targets><TrackUID>1001</TrackUID></Targets>

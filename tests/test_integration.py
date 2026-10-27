@@ -81,7 +81,9 @@ class MediaTests(unittest.TestCase):
                 '--commentary-flag', '1:1', '--hearing-impaired-flag', '1:1',
                 '--language', '3:en-US', '--track-name', '3:English DTS 5.1',
                 '--default-track-flag', '3:0', '--default-track-flag', '2:0',
-                '--default-track-flag', '4:0', '--language', '4:de', base)
+                '--default-track-flag', '4:0', '--language', '4:de',
+                '--track-name', '2:Deutsch DTS Kommentar (AC3 unverändert)',
+                '--track-name', '4:DTS Untertitel', base)
         media = inspect(cls.rich, cls.runner)
         uid = media.dts_tracks[0].uid
         # ChapterTrackNumber refers to an EBML track number, not a TrackUID.
@@ -136,6 +138,10 @@ class MediaTests(unittest.TestCase):
         self.assertEqual([t.uid for t in media.tracks], [t.uid for t in target.tracks])
         self.assertEqual(original_hash, hashlib.sha256(self.rich.read_bytes()).digest())
         self.assertEqual([t.channels for t in target.tracks if t.type == 'audio'], [1, 1, 6])
+        self.assertEqual([t.properties.get('track_name', '') for t in target.tracks],
+                         ['DTS Untertitel', 'Deutsch AC3 (Originaltitel)', '',
+                          'Deutsch DTS Kommentar (AC3 unverändert)', 'English AC3 5.1'])
+        self.assertTrue(any('English DTS 5.1' in c and 'English AC3 5.1' in c for c in result.checks))
         self.assertTrue(any('SHA-256' in c for c in result.checks))
         self.assertFalse(list(result.output.parent.glob('.mkv-audio-converter-*')))
         self.assertEqual(xml_key(extract_xml(self.runner, self.rich, 'chapters')),
