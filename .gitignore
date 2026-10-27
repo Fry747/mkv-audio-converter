@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+.mkv-audio-converter-*/
+
+# Local test media, diagnostic runs and private logs
+/Test_*/
+*.mkv
+*.mka
+*.ac3
+/gui.log
+/terminal.log

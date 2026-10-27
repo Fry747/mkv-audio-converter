@@ -1,0 +1,31 @@
+test_all_audio_replaced_uses_no_audio (test_core.CoreTests.test_all_audio_replaced_uses_no_audio) ... ok
+test_bitrate_validation (test_core.CoreTests.test_bitrate_validation) ... ok
+test_changed_input_and_downmix_guard (test_core.CoreTests.test_changed_input_and_downmix_guard) ... ok
+test_discovery_cancellation (test_core.CoreTests.test_discovery_cancellation) ... ok
+test_dts_family_and_non_dts (test_core.CoreTests.test_dts_family_and_non_dts) ... ok
+test_failed_conversion_cleans_private_directory (test_core.CoreTests.test_failed_conversion_cleans_private_directory) ... ok
+test_failure_is_reported (test_core.CoreTests.test_failure_is_reported) ... ok
+test_invalid_json (test_core.CoreTests.test_invalid_json) ... ok
+test_no_dts_is_skipped_without_output (test_core.CoreTests.test_no_dts_is_skipped_without_output) ... ok
+test_order_and_input_scoping_with_non_contiguous_ids (test_core.CoreTests.test_order_and_input_scoping_with_non_contiguous_ids) ... ok
+test_publish_never_overwrites_even_symlinks (test_core.CoreTests.test_publish_never_overwrites_even_symlinks) ... ok
+test_recursive_discovery_deduplicates_and_ignores_temp_dirs (test_core.CoreTests.test_recursive_discovery_deduplicates_and_ignores_temp_dirs) ... ok
+test_runner_uses_no_shell_for_special_characters (test_core.CoreTests.test_runner_uses_no_shell_for_special_characters) ... ok
+test_semantic_xml_accepts_only_added_derived_language (test_core.CoreTests.test_semantic_xml_accepts_only_added_derived_language) ... ok
+test_silent_child_can_be_cancelled_and_is_reaped (test_core.CoreTests.test_silent_child_can_be_cancelled_and_is_reaped) ... ok
+test_stderr_error_even_if_tool_exits_zero (test_core.CoreTests.test_stderr_error_even_if_tool_exits_zero) ... ok
+test_tag_cleanup_keeps_descriptive_and_unrelated_tags (test_core.CoreTests.test_tag_cleanup_keeps_descriptive_and_unrelated_tags) ... ok
+test_timeout (test_core.CoreTests.test_timeout) ... ok
+test_scan_convert_report_and_rescan (test_gui.GuiTests.test_scan_convert_report_and_rescan) ... ok
+test_window_controls_and_remove_row (test_gui.GuiTests.test_window_controls_and_remove_row) ... ok
+test_late_audio_beyond_initial_identification_window (test_integration.MediaTests.test_late_audio_beyond_initial_identification_window) ... ok
+test_no_dts_creates_nothing (test_integration.MediaTests.test_no_dts_creates_nothing) ... ok
+test_quick_mode_still_checks_audio (test_integration.MediaTests.test_quick_mode_still_checks_audio) ... ok
+test_single_dts_zero_offset_no_chapters_and_collision (test_integration.MediaTests.test_single_dts_zero_offset_no_chapters_and_collision) ... ok
+test_timestamp_gap_preserves_pulse_after_gap (test_integration.MediaTests.test_timestamp_gap_preserves_pulse_after_gap) ... ok
+test_two_dts_vfr_order_metadata_sync_and_unchanged_payloads (test_integration.MediaTests.test_two_dts_vfr_order_metadata_sync_and_unchanged_payloads) ... ok
+
+----------------------------------------------------------------------
+Ran 26 tests in 19.943s
+
+OK
