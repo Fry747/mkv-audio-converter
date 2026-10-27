@@ -149,8 +149,13 @@ die Tests nativ auf Windows aus, baut EXEs/Installer/ZIP und prüft zusätzlich
 die eingefrorene CLI mit einer echten Unicode-Datei und AC3-Konvertierung sowie
 den Start der GUI. Auch stille Installation und Deinstallation mit Erhalt
 einer Test-Mediendatei und des Werkzeugcaches werden geprüft.
-Download unter den Workflow-Artefakten. Es wird kein GitHub
-Release automatisch veröffentlicht.
+Download unter den Workflow-Artefakten. Das Artefakt `windows-test-logs`
+enthält auch die Protokolle der Abhängigkeitseinrichtung und des Werkzeug-Setups,
+falls der Lauf bereits vor den Tests abbricht. Ein erneuter Versuch nach einer
+Codekorrektur muss über **Run workflow** mit dem aktuellen Branch gestartet werden:
+**Re-run failed jobs** wiederholt den alten Commit einschließlich des alten Fehlers.
+
+Es wird kein GitHub-Release automatisch veröffentlicht.
 
 Ein echter Desktoptest für Installation/Deinstallation, Dateidialoge und
 Drag-and-drop auf Windows 10/11 bleibt vor einer Freigabe sinnvoll. Ein Linux-

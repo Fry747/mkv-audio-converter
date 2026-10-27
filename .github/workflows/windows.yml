@@ -11,24 +11,40 @@ jobs:
     timeout-minutes: 40
     env:
       PYTHONUTF8: '1'
+      PYTHONUNBUFFERED: '1'
       PYTHONDONTWRITEBYTECODE: '1'
       QT_QPA_PLATFORM: offscreen
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - name: Record build environment
+        shell: pwsh
+        run: |
+          "Runner: $env:RUNNER_OS $env:RUNNER_ARCH; commit: $env:GITHUB_SHA" | Set-Content windows-environment.log
+          $PSVersionTable | Out-String | Add-Content windows-environment.log
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0, Node 24
         with:
           python-version: '3.13'
           architecture: x64
           cache: pip
           cache-dependency-path: packaging/windows/requirements-build.txt
       - name: Install build dependencies
-        run: python -m pip install -r packaging/windows/requirements-build.txt
+        shell: pwsh
+        run: |
+          Start-Transcript -Path windows-dependencies.log
+          try {
+            python -m pip install -r packaging/windows/requirements-build.txt
+            if ($LASTEXITCODE -ne 0) { throw 'Build dependency installation failed' }
+          } finally { Stop-Transcript }
       - name: Set up pinned upstream tools and expose them to media tests
         shell: pwsh
         run: |
-          python -m mkv_audio_converter --setup-tools
-          if ($LASTEXITCODE -ne 0) { throw 'Tool setup failed' }
-          python -c "from mkv_audio_converter.runtime import configured_tools; import os; from pathlib import Path; paths=sorted({str(p.parent) for p in configured_tools().values()}); f=Path(os.environ['GITHUB_PATH']); f.open('a',encoding='utf-8').write('\n'.join(paths)+'\n')"
+          Start-Transcript -Path windows-tools-setup.log
+          try {
+            python -m mkv_audio_converter --setup-tools
+            if ($LASTEXITCODE -ne 0) { throw 'Tool setup failed' }
+            python -c "from mkv_audio_converter.runtime import configured_tools; import os; from pathlib import Path; paths=sorted({str(p.parent) for p in configured_tools().values()}); f=Path(os.environ['GITHUB_PATH']); f.open('a',encoding='utf-8').write('\n'.join(paths)+'\n')"
+            if ($LASTEXITCODE -ne 0) { throw 'Exposing tool paths failed' }
+          } finally { Stop-Transcript }
       - name: Native Windows tests
         shell: pwsh
         run: |
@@ -38,26 +54,37 @@ jobs:
           if ($testExit -ne 0) { throw 'Windows tests failed' }
       - name: Build portable ZIP and per-user installer
         shell: pwsh
-        run: ./packaging/windows/build-windows.ps1
+        run: |
+          Start-Transcript -Path windows-build.log
+          try { ./packaging/windows/build-windows.ps1 } finally { Stop-Transcript }
       - name: Frozen EXE smoke tests (also checks DLL isolation)
         shell: pwsh
         run: |
-          $env:QT_QPA_PLATFORM = 'offscreen'
-          .\.venv-build\Scripts\python.exe packaging/windows/smoke.py dist/MKVAudioConverter
-          if ($LASTEXITCODE -ne 0) { throw 'Frozen smoke test failed' }
+          Start-Transcript -Path windows-frozen-smoke.log
+          try {
+            $env:QT_QPA_PLATFORM = 'offscreen'
+            .\.venv-build\Scripts\python.exe packaging/windows/smoke.py dist/MKVAudioConverter
+            if ($LASTEXITCODE -ne 0) { throw 'Frozen smoke test failed' }
+          } finally { Stop-Transcript }
       - name: Silent installer and non-destructive uninstall smoke test
         shell: pwsh
         run: ./packaging/windows/installer-smoke.ps1
-      - name: Keep test logs
+      - name: Keep diagnostic logs (including early setup failures)
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24
         with:
           name: windows-test-logs
           path: |
+            windows-environment.log
+            windows-dependencies.log
+            windows-tools-setup.log
             windows-tests.log
+            windows-build.log
+            windows-frozen-smoke.log
             windows-installer.log
+          if-no-files-found: warn
       - name: Windows packages
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24
         with:
           name: MKVAudioConverter-windows-x64
           path: dist/windows/*

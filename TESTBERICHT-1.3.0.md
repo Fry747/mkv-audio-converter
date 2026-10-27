@@ -70,8 +70,56 @@ vorbereitet, aber noch nicht ausgeführt:
 
 Der Workflow [.github/workflows/windows.yml](.github/workflows/windows.yml)
 führt diese Schritte auf Windows x64 aus und stellt nur bei Erfolg die Pakete
-als Artefakte bereit. Er wurde eingerichtet, **nicht auf GitHub gestartet**.
+als Artefakte bereit. Der erste GitHub-Lauf brach vor den Tests bei der Werkzeugeinrichtung ab;
+siehe den folgenden Nachtrag.
 Ein manueller Desktoptest auf Windows 10/11 ergänzt die CI-Prüfungen.
 
 Die Änderungen sind damit implementiert und auf Linux regressionsgeprüft;
 eine native Windows-Freigabe ist mit diesem Bericht noch nicht bestätigt.
+
+
+## Nachtrag: erster GitHub-Windows-Lauf und Korrektur
+
+Der [Windows-Lauf 40501193664](https://github.com/Fry747/mkv-audio-converter/actions/runs/40501193664)
+auf Commit `c0fa37f` scheiterte am 27. Oktober 2026 bereits nach Download und
+Entpacken der Werkzeuge. Der erste Versionsaufruf von `mkvmerge.exe` meldete:
+
+```text
+Error: There is no translation available for 'en_US'.
+```
+
+Der Runner hatte den Unix-Sprachcode `en_US` an die Windows-Binaries übergeben;
+diese erwarten `en`. Die Korrektur gilt für `mkvmerge`, `mkvextract` und
+`mkvpropedit`. Ein plattformübergreifender Regressionstest führt den Runner mit
+einem Prozess aus, der den falschen Sprachcode ablehnt, und prüft alle drei
+Werkzeuge einschließlich UTF-8-Ausgabe.
+
+Die fehlenden Test-/Installer-Logs waren eine Folge des frühen Abbruchs. Der
+Workflow zeichnet nun auch Umgebung, Abhängigkeiten, Werkzeug-Setup, Build und
+EXE-Prüfung auf und lädt vorhandene Protokolle auch bei Fehlern hoch. Die
+verwendeten Actions sind auf die am Prüfdatum verfügbaren stabilen Versionen
+mit Node 24 aktualisiert und weiterhin auf vollständige Commit-SHAs festgelegt:
+Checkout 7.0.1, Setup Python 7.1.0 und Upload Artifact 7.0.2. Die `action.yml`
+aller drei konkreten Commits wurde auf `runs.using: node24` geprüft.
+
+Die CLI schreibt beim Setup nur noch geänderte Prozent-/Phasenanzeigen; der
+erste Lauf hatte über 13.000 Zeilen mit überwiegend identischen Prozenten.
+Ein Regressionstest prüft, dass 1.000 identische Meldungen nur einmal erscheinen.
+
+Ein neuer nativer Windows-Lauf ist für die korrigierte Fassung weiterhin
+notwendig. **Run workflow** auf dem aktualisierten Branch ausführen;
+**Re-run failed jobs** verwendet weiterhin den alten Commit.
+
+
+Lokale Prüfung nach der Korrektur (Linux):
+
+```text
+Ran 90 tests in 50.655s
+OK (skipped=2)
+```
+
+**88 erfolgreich, zwei native Windows-Tests übersprungen.**
+[Protokoll der korrigierten Fassung](docs/tests-windows-workflow-fix.log).
+Die YAML-Struktur, vollständigen Action-Pins und Python-Syntax wurden ebenfalls
+geprüft. PowerShell-Transkripte und der vollständige Installer-Build sind erst
+im neuen Windows-Lauf ausführbar.

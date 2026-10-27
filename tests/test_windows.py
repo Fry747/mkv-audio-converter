@@ -16,7 +16,7 @@ import zipfile
 
 from mkv_audio_converter import runtime
 from mkv_audio_converter.core import Cancelled, ConversionError, Options, Runner, check_tools, convert, inspect, publish
-from mkv_audio_converter.processes import ThreadedPipes
+from mkv_audio_converter.processes import ThreadedPipes, spawn as spawn_process
 from mkv_audio_converter.windows_tools import (Package, PACKAGES, check_pe64, check_url, download, extract,
                                                install, safe_members, use_existing)
 
@@ -31,6 +31,41 @@ def fake_pe(path):
 
 
 class WindowsSupportTests(unittest.TestCase):
+    def test_windows_mkv_tools_use_short_english_code_and_utf8(self):
+        # Exercise Runner's real pipe/exit handling with a stand-in that rejects
+        # the Unix token, as the actual Windows MKVToolNix build does.
+        validator = ('import sys;args=sys.argv[1:];'
+                     'sys.exit(2) if args[:4] != ["--ui-language","en","--output-charset","UTF-8"] '
+                     'else print("English output")')
+        with tempfile.TemporaryDirectory() as folder:
+            for tool in ('mkvmerge', 'mkvextract', 'mkvpropedit'):
+                with self.subTest(tool=tool):
+                    path = Path(folder)/(tool + '.exe')
+                    path.touch()
+                    commands = []
+                    def launch(command, env):
+                        commands.append(command)
+                        return spawn_process([sys.executable, '-c', validator, *command[1:]], env)
+                    with patch.object(runtime, 'windows', return_value=True), \
+                         patch('mkv_audio_converter.core.spawn', side_effect=launch):
+                        output = Runner(tool_paths={tool: path}, threaded_io=True).run(
+                            [tool, '--version'], capture=True)
+                    self.assertEqual(output, 'English output\n')
+                    self.assertEqual(commands, [[str(path), '--ui-language', 'en',
+                                               '--output-charset', 'UTF-8', '--version']])
+
+    def test_setup_cli_progress_does_not_flood_logs(self):
+        from mkv_audio_converter.__main__ import _setup_progress_printer
+        output = io.StringIO()
+        with patch('sys.stderr', output):
+            progress = _setup_progress_printer()
+            for _ in range(1000):
+                progress(.88, 'mkvtoolnix herunterladen')
+            progress(.89, 'mkvtoolnix herunterladen')
+            progress(.89, 'mkvtoolnix entpacken')
+        self.assertEqual(output.getvalue().splitlines(), [
+            '88% mkvtoolnix herunterladen', '89% mkvtoolnix herunterladen', '89% mkvtoolnix entpacken'])
+
     def test_threaded_output_preserves_lines_progress_and_both_streams(self):
         lines = []
         raw = Runner(threaded_io=True).run([sys.executable, '-u', '-c',

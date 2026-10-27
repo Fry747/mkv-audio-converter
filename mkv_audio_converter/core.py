@@ -190,7 +190,8 @@ class Runner:
                 raise ConversionError(f"Werkzeug fehlt: {tool}. Windows-Werkzeuge über das Werkzeugmenü einrichten.")
             command[0] = resolved
         if runtime.windows() and Path(command[0]).stem.casefold().startswith(('mkvmerge', 'mkvextract', 'mkvpropedit')):
-            command[1:1] = ['--ui-language', 'en_US', '--output-charset', 'UTF-8']
+            # Windows builds use short language codes; Unix builds use en_US.
+            command[1:1] = ['--ui-language', 'en', '--output-charset', 'UTF-8']
         rendered = subprocess.list2cmdline(command) if runtime.windows() else shlex.join(command)
         self.log(f"[{time.strftime('%H:%M:%S')}] $ " + rendered)
         env = os.environ.copy()

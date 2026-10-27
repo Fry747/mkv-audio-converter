@@ -15,6 +15,18 @@ from . import __version__
 from .core import Cancelled, Options, Runner, check_tools, convert, discover, inspect
 
 
+def _setup_progress_printer():
+    """Print each visible percentage/phase once, even for tiny network reads."""
+    last = None
+    def report(value, phase):
+        nonlocal last
+        message = f"{value:.0%} {phase}"
+        if message != last:
+            print(message, file=sys.stderr, flush=True)
+            last = message
+    return report
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="DTS → AC3 mit unverändertem Video und MKVToolNix.")
     parser.add_argument("paths", nargs="*", type=Path, help="MKV-Dateien oder Ordner")
@@ -69,7 +81,7 @@ def main(argv=None):
     try:
         if args.setup_tools:
             from .windows_tools import install
-            report["tools"] = install(runner, lambda value, phase: print(f"{value:.0%} {phase}", file=sys.stderr))
+            report["tools"] = install(runner, _setup_progress_printer())
             print(json.dumps(report["tools"], indent=2, ensure_ascii=False))
             return 0
         report["tools"] = check_tools(runner)
